@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "518982344435",
+    "project_id": "kneipentour-3d44c",
+    "storage_bucket": "kneipentour-3d44c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:518982344435:android:aa18133829d980f9212186",
+        "android_client_info": {
+          "package_name": "de.seitendorf.kneipentour"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBQCkHJ5aTpRp2TDkApZddHgvyJJ7Jka8c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
