@@ -17,9 +17,18 @@ workflows:
       - name: 🔥 Build Android APK
         script: |
           flutter build apk --release
-      - name: 🍏 Build iOS IPA
+      - name: Clean Pods
         script: |
-          flutter build ios --release --no-codesign
+          cd ios
+          rm -rf Pods Podfile.lock
+          cd ..
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install
+          cd ..
+      - name: Build iOS IPA
+        script: flutter build ipa --release
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
       - build/ios/ipa/*.ipa
