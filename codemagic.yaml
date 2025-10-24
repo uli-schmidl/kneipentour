@@ -17,14 +17,18 @@ workflows:
       - name: 🔥 Build Android APK
         script: |
           flutter build apk --release
-      - name: Clean Pods
+      - name: Clean Flutter & iOS build
         script: |
-          cd ios
-          rm -rf Pods Podfile.lock
-          cd ..
+          flutter clean
+          rm -rf ios/Pods ios/Podfile.lock ios/.symlinks
+          rm -rf ~/Library/Caches/CocoaPods
+          flutter pub get
+      - name: Recreate iOS platform
+        script: flutter create --platforms=ios --overwrite .
       - name: Install CocoaPods
         script: |
           cd ios
+          pod repo update
           pod install
           cd ..
       - name: Build iOS IPA

@@ -2,16 +2,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:kneipentour/data/achievement_manager.dart';
 import 'package:kneipentour/data/activity_manager.dart';
-import 'package:kneipentour/data/guest_manager.dart';
-import 'package:kneipentour/data/pub_manager.dart';
+import 'package:flutter_paypal_payment/flutter_paypal_payment.dart';
 import 'package:kneipentour/data/session_manager.dart';
 import 'package:kneipentour/models/achievement.dart';
 import 'package:kneipentour/models/activity.dart';
+import 'package:location/location.dart';
 import '../models/pub.dart';
 
 class PubInfoScreen extends StatefulWidget {
   final Pub pub;
   final String guestId;
+  final LocationData? currentLocation; // 👈 hinzufügen
   final Future<void> Function(String, String, {bool consumeDrink}) onCheckIn;
   final Future<void> Function(String, String) onCheckOut;
 
@@ -20,6 +21,7 @@ class PubInfoScreen extends StatefulWidget {
     required this.guestId,
     required this.onCheckIn,
     required this.onCheckOut,
+    required this.currentLocation,
     super.key,
   });
 
@@ -157,6 +159,142 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
       },
     );
   }
+  void _payWithPayPal(BuildContext context, double amount, String pubId, String pubName) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (BuildContext context) => PaypalCheckoutView(
+          sandboxMode: true, // später false für Livebetrieb
+          clientId: "AZD6aNSsd2yDqnxFN96Mk7d0QlxEnrxagQCJMHCkwXSLbPCKATa9u3p1H5gemuUILfZ6s7HSGxEvR_dG",
+          secretKey: "EMRAjQbPs7AU9lXFYoLeurb3mUbyO87PN6_dApzDlyiXjcEaMyMy2zrHYdTRDnC_11BmaDsmdT9ijrvV",
+          transactions: [
+            {
+              "amount": {
+                "total": amount.toStringAsFixed(2),
+                "currency": "EUR",
+                "details": {
+                  "subtotal": amount.toStringAsFixed(2),
+                }
+              },
+              "description": "Getränk in $pubName 🍺"
+            }
+          ],
+          note: "Prost! Danke fürs Mitmachen bei der Kneipentour 🍻",
+          onSuccess: (Map params) async {
+            print("✅ PayPal-Zahlung erfolgreich: $params");
+            Navigator.pop(context);
+            await _logDrink(pubId, pubName, payment: "paypal");
+
+            // 🔹 Drink Activity speichern
+            await ActivityManager().logActivity(
+              Activity(
+                id: '',
+                guestId: SessionManager().guestId,
+                pubId: pubId,
+                action: 'drink',
+                timestampBegin: DateTime.now(),
+                latitude: 0, // kann optional durch aktuelle Location ersetzt werden
+                longitude: 0,
+              ),
+            );
+
+            // 🔹 Achievement-Event auslösen
+            AchievementManager().notifyAction(
+              AchievementEventType.drink,
+              SessionManager().guestId,
+              pubId: pubId,
+            );
+
+            // 🔹 SnackBar oder Popup anzeigen
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("🍻 Zahlung erfolgreich! Getränk gebucht.")),
+            );
+          },
+          onError: (error) {
+            print("❌ Zahlung fehlgeschlagen: $error");
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("⚠️ Zahlung fehlgeschlagen.")),
+            );
+          },
+          onCancel: () {
+            print("🟡 Zahlung abgebrochen");
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("💸 Zahlung abgebrochen.")),
+            );
+          },
+        ),
+      ),
+    );
+  }
+  void _showPaymentChoiceDialog(BuildContext context, String pubId, String pubName) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          title: const Text(
+            "Wie möchtest du bezahlen?",
+            style: TextStyle(color: Colors.white),
+          ),
+          content: const Text(
+            "Bitte wähle eine Zahlungsart für dein Getränk:",
+            style: TextStyle(color: Colors.white70),
+          ),
+          actions: [
+            TextButton.icon(
+              icon: const Icon(Icons.euro, color: Colors.orangeAccent),
+              label: const Text("Barzahlung", style: TextStyle(color: Colors.orangeAccent)),
+              onPressed: () async {
+                Navigator.pop(context);
+                await _logDrink(pubId, pubName, payment: "cash");
+              },
+            ),
+            TextButton.icon(
+              icon: const Icon(Icons.payment, color: Colors.blueAccent),
+              label: const Text("PayPal", style: TextStyle(color: Colors.blueAccent)),
+              onPressed: () {
+                Navigator.pop(context);
+                _payWithPayPal(context, 3.50, pubId, pubName); // Betrag dynamisch möglich
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _logDrink(String pubId, String pubName, {String payment = "cash"}) async {
+    final loc = widget.currentLocation;
+
+    await ActivityManager().logActivity(
+      Activity(
+        id: '',
+        guestId: SessionManager().guestId,
+        pubId: pubId,
+        action: 'drink',
+        timestampBegin: DateTime.now(),
+        latitude: loc?.latitude ?? 0,
+        longitude: loc?.longitude ?? 0,
+      ),
+    );
+
+    AchievementManager().notifyAction(
+      AchievementEventType.drink,
+      SessionManager().guestId,
+      pubId: pubId,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(payment == "cash"
+            ? "🍻 Getränk registriert (Barzahlung)"
+            : "🍻 Getränk registriert (PayPal)"),
+      ),
+    );
+  }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -243,8 +381,12 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
                                   onPressed: (!onCooldown &&
                                       widget.pub.isOpen &&
                                       isCheckedIn)
-                                      ? _consumeDrink
-                                      : null,
+                                    ? () => _showPaymentChoiceDialog(
+                                      context,
+                                      widget.pub.id,
+                                      widget.pub.name,
+                                    )
+                                    : null,
                                   icon: const Icon(Icons.local_drink),
                                   label: Text(
                                     onCooldown

@@ -147,11 +147,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   pub: pub,
                   guestId: SessionManager().guestId,
                   onCheckIn: (String guestId, String pubId, {bool consumeDrink = false}) async {
-                    await _checkInGuest(guestId, pubId, consumeDrink: consumeDrink);
+                    await _checkInGuest(guestId, pubId, consumeDrink: consumeDrink, );
                   },
                   onCheckOut: (String guestId, String pubId) async {
                     await _checkOutGuest(guestId, pubId);
                   },
+                  currentLocation: _currentLocation,
                 ),
               ),
             );
@@ -351,6 +352,7 @@ class _HomeScreenState extends State<HomeScreen> {
         guestId: SessionManager().guestId,
         onCheckIn: _checkInGuest,
         onCheckOut: _checkOutGuest,
+        currentLocation: _currentLocation,
       ),
       RankingScreen(),
       AchievementScreen(),
@@ -707,6 +709,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 guestId: SessionManager().guestId,
                                 onCheckIn: _checkInGuest,
                                 onCheckOut: _checkOutGuest,
+                                currentLocation: _currentLocation,
                               ),
                             ),
                           );
@@ -805,6 +808,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   guestId: SessionManager().guestId,
                   onCheckIn: _checkInGuest,
                   onCheckOut: _checkOutGuest,
+                  currentLocation: _currentLocation,
                 ),
               ),
             );

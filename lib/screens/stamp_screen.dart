@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:kneipentour/data/activity_manager.dart';
 import 'package:kneipentour/models/activity.dart';
+import 'package:location/location.dart';
 import '../data/pub_manager.dart';
 import 'pub_info_screen.dart';
 
@@ -12,13 +13,14 @@ class StampScreen extends StatefulWidget {
   final String guestId;
   final CheckInCallback onCheckIn;
   final CheckOutCallback onCheckOut;
-
+  final LocationData? currentLocation;
 
   const StampScreen({
     super.key,
     required this.guestId,
     required this.onCheckIn,
     required this.onCheckOut,
+    required this.currentLocation,
   });
 
   @override
@@ -127,6 +129,7 @@ class _StampScreenState extends State<StampScreen> {
                                 guestId: widget.guestId,
                                 onCheckIn: widget.onCheckIn,
                                 onCheckOut: widget.onCheckOut,
+                                currentLocation: widget.currentLocation,
                               ),
                             ),
                           );
