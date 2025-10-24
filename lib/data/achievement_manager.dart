@@ -1,67 +1,60 @@
 import 'dart:async';
-import 'package:kneipentour/models/achievement.dart';
-import 'package:kneipentour/data/activity_manager.dart';
+import 'package:kneipentour/models/achievement.dart'; // enthält AchievementEventType!
 import 'package:kneipentour/data/achievements.dart';
-import 'package:kneipentour/data/session_manager.dart';
 
+/// Zentraler Manager für alle Achievements.
+/// Reagiert auf Events wie Check-in, Drink etc. und prüft Bedingungen.
 class AchievementManager {
   static final AchievementManager _instance = AchievementManager._internal();
   factory AchievementManager() => _instance;
   AchievementManager._internal();
 
-  /// Alle Achievements aus deiner bestehenden Datei
-  late List<Achievement> achievements;
+  /// Alle Achievements aus achievements.dart
+  List<Achievement> achievements = [];
 
-  /// Callback, wenn ein Achievement freigeschaltet wird (z. B. Popup anzeigen)
+  /// Optionaler Callback, wenn ein Achievement freigeschaltet wird (z. B. Popup)
   void Function(Achievement achievement)? onAchievementUnlocked;
-
 
   bool _initialized = false;
 
-  /// Initialisiert den Manager (z. B. beim App-Start oder im HomeScreen.initState)
+  /// Initialisierung (z. B. in HomeScreen.initState aufrufen)
   void initialize() {
     if (_initialized) return;
     _initialized = true;
 
-    // 🔁 Bestehende Achievements laden
     achievements = AchievementData().all;
-
-
-
     print("✅ AchievementManager initialisiert (${achievements.length} Achievements geladen)");
   }
 
-  /// Von außen aufrufbar, wenn eine relevante Aktion passiert:
-  /// Beispiel:
-  /// await AchievementManager().notifyAction(AchievementEventType.drink, guestId, pubId: "xyz");
+  /// Von außen aufrufbar, wenn eine Aktion passiert.
+  /// Beispiel: AchievementManager().notifyAction(AchievementEventType.drink, guestId)
   Future<void> notifyAction(AchievementEventType type, String guestId, {String? pubId}) async {
     if (!_initialized) initialize();
 
-    print("🎯 Achievement-Event: $type (Gast: $guestId)");
+    print("🎯 Achievement-Event: $type (Gast: $guestId, Pub: ${pubId ?? '–'})");
 
-    // Direkt statt Stream
     await _handleEvent(_AchievementEvent(type, guestId, pubId));
   }
 
-
-  /// Wird intern aufgerufen, wenn ein Event eintrifft
+  /// Prüft alle passenden Achievements, wenn ein Event eingeht.
   Future<void> _handleEvent(_AchievementEvent event) async {
-    print("📨 _handleEvent() received: ${event.type} (${event.guestId})");
+    print("📨 _handleEvent() → ${event.type} (${event.guestId})");
+
     for (final a in achievements) {
-      print("📨 _handleEvent() using ${a.title}");
       if (a.trigger != event.type) continue;
       if (a.unlocked) continue;
+
+      print("🧩 Prüfe Achievement: ${a.title}");
 
       bool conditionMet = true;
 
       if (a.condition != null) {
         try {
-          // 🔥 WICHTIG: async condition auswerten
-          print("📨 _handleEvent() checking condition for ${a.title} (${event.guestId})");
-
+          print("🔍 Evaluating condition for '${a.id}' ...");
           conditionMet = await a.condition!(event.guestId);
-        } catch (e) {
-          print("⚠️ Fehler bei Achievement-Condition '${a.id}': $e");
+          print("✅ Condition result: $conditionMet");
+        } catch (e, st) {
+          print("⚠️ Fehler bei Achievement '${a.id}': $e\n$st");
           conditionMet = false;
         }
       }
@@ -72,23 +65,22 @@ class AchievementManager {
     }
   }
 
-  /// Achievement freischalten und ggf. speichern oder Popup zeigen
+  /// Markiert ein Achievement als freigeschaltet, speichert und löst ggf. UI-Callback aus.
   Future<void> _unlockAchievement(Achievement a, String guestId) async {
     if (a.unlocked) return;
 
     a.unlocked = true;
     print("🏆 Achievement freigeschaltet: ${a.title}");
 
-    // 💾 Optional in Firestore speichern
+    // 💾 Optional: in Firestore speichern
+    // await FirebaseFirestore.instance.collection('achievements').add({...});
 
-    // 🔔 UI-Callback (Popup etc.)
-    if (onAchievementUnlocked != null) {
-      onAchievementUnlocked!(a);
-    }
+    // 🔔 Popup- oder UI-Callback triggern
+    onAchievementUnlocked?.call(a);
   }
 }
 
-/// Internes Eventmodell
+/// Internes Eventmodell (private Klasse)
 class _AchievementEvent {
   final AchievementEventType type;
   final String guestId;

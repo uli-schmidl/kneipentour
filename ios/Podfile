@@ -1,1 +1,14 @@
 platform :ios, '15.0'
+use_frameworks!
+use_modular_headers!
+
+flutter_application_path = '../'
+load File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb')
+
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_application_path = '../'
+  eval(File.read(File.join(flutter_application_path, 'ios', 'Flutter', 'podhelper.rb')), binding)
+end

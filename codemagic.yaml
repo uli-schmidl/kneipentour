@@ -33,7 +33,7 @@ workflows:
     environment:
       vars:
         CM_KEYSTORE_PASSWORD: "test1234"
-        CM_KEY_ALIAS: "uschmidl"
+        CM_KEY_ALIAS: "mykey"
         CM_KEY_PASSWORD: "dein_key_passwort"
         CM_KEYSTORE_PATH: "my-release-key.jks"
     scripts:

@@ -363,6 +363,10 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _initializeApp();
+    // 👇 kleine Verzögerung, damit Build & Streams fertig sind
+    Future.delayed(const Duration(seconds: 2), () {
+      _initLocation();
+    });
   }
 
   Future<void> _initializeApp() async {
@@ -525,9 +529,16 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
-    final LatLng startPos = _currentLocation != null
-        ? LatLng(_currentLocation!.latitude!, _currentLocation!.longitude!)
-        : const LatLng(49.4521, 11.0767);
+    final LatLng startPos;
+    if (_currentLocation == null ||
+        _currentLocation!.latitude == null ||
+        _currentLocation!.longitude == null ||
+        (_currentLocation!.latitude == 0 && _currentLocation!.longitude == 0)) {
+      // 🧭 Fallback: FFW-Haus
+      startPos = const LatLng(49.4521, 11.0767);
+    } else {
+      startPos = LatLng(_currentLocation!.latitude!, _currentLocation!.longitude!);
+    }
 
 
     const String darkMapStyle = '''
