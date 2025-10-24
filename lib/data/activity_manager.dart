@@ -82,22 +82,26 @@ class ActivityManager {
         .toList());
   }
 
-  Future<Activity?> getCheckInActivity(String guestId, String pubId) async {
-    final snapshot = await FirebaseFirestore.instance
+  Future<Activity?> getCheckInActivity(String guestId, {String? pubId}) async {
+    Query query = FirebaseFirestore.instance
         .collection('activities')
         .where('guestId', isEqualTo: guestId)
-        .where('pubId', isEqualTo: pubId)
         .where('action', isEqualTo: 'check-in')
-        .where('timestampEnd', isEqualTo: null) // Sucht nach Check-ins, bei denen timestampEnd noch nicht gesetzt ist
-        .get();
+        .where('timestampEnd', isEqualTo: null);
 
-    if (snapshot.docs.isNotEmpty) {
-      // Hole den ersten Datensatz (es wird angenommen, dass nur ein Check-in pro Gast in einem Pub existiert)
-      final doc = snapshot.docs.first;
-      return Activity.fromMap(doc.data(), doc.id);
+    // ✅ Wenn pubId angegeben ist → zusätzlich danach filtern
+    if (pubId != null) {
+      query = query.where('pubId', isEqualTo: pubId);
     }
 
-    return null; // Kein Check-in gefunden
+    final snapshot = await query.get();
+
+    if (snapshot.docs.isNotEmpty) {
+      final doc = snapshot.docs.first;
+      return Activity.fromMap(doc.data() as Map<String, dynamic>, doc.id);
+    }
+
+    return null; // kein aktiver Check-in gefunden
   }
 
   Future<void> updateActivity(Activity activity) async {

@@ -868,7 +868,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     print("🔁 Checkout: $pubId ($guestId)");
 
-    final checkInActivity = await ActivityManager().getCheckInActivity(guestId, pubId);
+    final checkInActivity = await ActivityManager().getCheckInActivity(guestId, pubId: pubId);
 
     if (checkInActivity != null) {
       checkInActivity.timestampEnd = DateTime.now();
@@ -886,46 +886,70 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
   Future<void> _checkInGuest(String guestId, String pubId, {bool consumeDrink = false}) async {
-    // Pub besorgen (nur fürs Logging/Name)
-    AchievementManager().notifyAction(AchievementEventType.checkIn, guestId, pubId: pubId);
-    final pub = PubManager().allPubs.firstWhere((p) => p.id == pubId, orElse: () =>
-        Pub(id: pubId, name: 'Kneipe', description: '', latitude: 0, longitude: 0, iconPath: '')
+    final pub = PubManager().allPubs.firstWhere(
+          (p) => p.id == pubId,
+      orElse: () => Pub(id: pubId, name: 'Kneipe', description: '', latitude: 0, longitude: 0, iconPath: ''),
     );
 
     final loc = _currentLocation;
-    final now = DateTime.now();
-
-    // Check-in Activity
-    if (!consumeDrink) {
-      await ActivityManager().logActivity(
-        Activity(
-          id: '',
-          guestId: SessionManager().guestId,          // <- aus deinem SessionManager
-          pubId: pubId,
-          action: 'check-in',
-          timestampBegin: now,
-          latitude: (loc?.latitude ?? 0).toDouble(),
-          longitude: (loc?.longitude ?? 0).toDouble(),
-        ),
+    if (loc == null || loc.latitude == null || loc.longitude == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("❌ Standort konnte nicht ermittelt werden.")),
       );
-    } else {
-      // Drink Activity
-      await ActivityManager().logActivity(
-        Activity(
-          id: '',
-          guestId: SessionManager().guestId,
-          pubId: pubId,
-          action: 'drink',
-          timestampBegin: now,
-          latitude: (loc?.latitude ?? 0).toDouble(),
-          longitude: (loc?.longitude ?? 0).toDouble(),
-        ),
-      );
+      return;
     }
 
-    // (optional) vorhandene Achievement-Checks kannst du jetzt auf Basis von ActivityManager auswerten
+    // 🧭 Distanz prüfen
+    final distance = _calculateDistance(
+      loc.latitude!,
+      loc.longitude!,
+      pub.latitude,
+      pub.longitude,
+    );
+
+    if (distance > 50) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("📍 Du bist zu weit entfernt (${distance.round()} m) – gehe näher an ${pub.name} heran."),
+        ),
+      );
+      return;
+    }
+
+    // ✅ Alles ok → Check-in
+    // 🔁 Falls Gast noch in einer anderen Kneipe eingecheckt ist → automatisch auschecken
+    final activeCheckIn = await ActivityManager().getCheckInActivity(guestId);
+    if (activeCheckIn != null && activeCheckIn.pubId != pubId) {
+      print("🔁 Auto-Checkout von alter Kneipe ${activeCheckIn.pubId}");
+      activeCheckIn.timestampEnd = DateTime.now();
+      await ActivityManager().updateActivity(activeCheckIn);
+      AchievementManager().notifyAction(AchievementEventType.checkOut, guestId, pubId: activeCheckIn.pubId);
+    }
+
+    AchievementManager().notifyAction(AchievementEventType.checkIn, guestId, pubId: pubId);
+
+    final now = DateTime.now();
+    final action = consumeDrink ? 'drink' : 'check-in';
+
+    await ActivityManager().logActivity(
+      Activity(
+        id: '',
+        guestId: SessionManager().guestId,
+        pubId: pubId,
+        action: action,
+        timestampBegin: now,
+        latitude: loc.latitude!,
+        longitude: loc.longitude!,
+      ),
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("🍻 Du bist jetzt in ${pub.name} eingecheckt!")),
+    );
+
     setState(() {});
   }
+
 
 
 
