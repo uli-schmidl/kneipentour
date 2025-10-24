@@ -17,6 +17,8 @@ workflows:
       - name: 🧹 Clean and recreate iOS project
         script: |
           flutter clean
+          rm -rf ios/Pods ios/Podfile.lock ios/.symlinks
+          flutter pub get
           flutter create --platforms=ios --overwrite .
 
       - name: 📦 Install CocoaPods
