@@ -10,13 +10,14 @@ import 'package:kneipentour/data/activity_manager.dart';
 import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/data/pub_manager.dart';
 import 'package:kneipentour/data/session_manager.dart';
+import 'package:kneipentour/models/achievement.dart';
 import 'package:kneipentour/models/activity.dart';
 import 'package:kneipentour/screens/achievement_screen.dart';
 import 'package:kneipentour/screens/pub_info_screen.dart';
 import 'package:location/location.dart';
 import 'stamp_screen.dart';
 import 'ranking_screen.dart';
-import 'faq_screen.dart';
+import 'info_screen.dart';
 import '../models/pub.dart';
 import '../data/achievement_manager.dart';
 import '../widgets/achievement_popup.dart';
@@ -40,27 +41,29 @@ class _HomeScreenState extends State<HomeScreen> {
   final double notificationDistance = 20;
   final Map<String, DateTime> _lastPubNotificationTimes = {};
   final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+  Pub? _mobilePubCached;
 
   StreamSubscription? _pubSub;
   StreamSubscription? _guestSub;
+  StreamSubscription<LocationData>? _locationSubscription;
 
-  Pub? get _mobilePub {
-    try {
-      return PubManager().allPubs.firstWhere((p) => p.isMobileUnit);
-    } catch (_) {
-      return null;
-    }
+
+  Future<void> _loadMobilePub() async {
+    _mobilePubCached = await PubManager().getMobileUnit();
+    setState(() {});
   }
+
 
   @override
   void dispose() {
     _pubSub?.cancel();
     _guestSub?.cancel();
+    _locationSubscription?.cancel();
     super.dispose();
   }
 
   void _listenToGuests() {
-    GuestManager().getGuestsStream().listen((snapshot) {
+    GuestManager().getGuestsStream().listen((snapshot) async{
       final topGuestId = _getTopGuestIdFromActivities();
       Set<Marker> markers = {};
 
@@ -71,14 +74,13 @@ class _HomeScreenState extends State<HomeScreen> {
         final lon = (data['longitude'] ?? 0).toDouble();
         final drinks = data['drinks'] ?? 0;
         final currentPub = data['currentPubName'] ?? '';
+        final icon = await _getIcon("assets/icons/you.png",40,96);
 
         markers.add(
           Marker(
             markerId: MarkerId(id),
             position: LatLng(lat, lon),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              id == topGuestId ? BitmapDescriptor.hueYellow : BitmapDescriptor.hueAzure,
-            ),
+            icon: icon,
             infoWindow: InfoWindow(
               title: data['guestName'],
               snippet: "$drinks Getränke${currentPub.isNotEmpty ? " – $currentPub" : ""}",
@@ -114,7 +116,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _initNotifications() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
-    AndroidInitializationSettings('@mipmap/ic_launcher');
+    AndroidInitializationSettings('ic_stat_notify'); // 👈 kleines Notification-Icon
+
     final InitializationSettings initializationSettings =
     InitializationSettings(android: initializationSettingsAndroid);
 
@@ -143,8 +146,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 builder: (_) => PubInfoScreen(
                   pub: pub,
                   guestId: SessionManager().guestId,
-                  onCheckIn: (String guestId, String pubId, {bool consumeDrink = false}) {
-                    _checkInGuest(pubId, guestId);
+                  onCheckIn: (String guestId, String pubId, {bool consumeDrink = false}) async {
+                    await _checkInGuest(guestId, pubId, consumeDrink: consumeDrink);
+                  },
+                  onCheckOut: (String guestId, String pubId) async {
+                    await _checkOutGuest(guestId, pubId);
                   },
                 ),
               ),
@@ -184,19 +190,18 @@ class _HomeScreenState extends State<HomeScreen> {
         final name = data['name'] ?? 'Gast';
 
         final isTopGuest = guestId == topGuestId;
+        final icon = await _getIcon("assets/icons/king.png",40,96);
 
         guestMarkers.add(
           Marker(
             markerId: MarkerId('guest_$guestId'),
             position: LatLng(lat, lon),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              isTopGuest ? BitmapDescriptor.hueYellow : BitmapDescriptor.hueAzure,
-            ),
+            icon: icon,
             infoWindow: InfoWindow(title: name),
           ),
         );
       }
-
+      if (!mounted) return;
       setState(() {
         _guestMarkers = guestMarkers;
       });
@@ -206,20 +211,41 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _listenToMobileUnitMarker() {
     PubManager().getPubsStream().listen((snapshot) async {
-      // 🔍 Finde Dokument mit isMobileUnit == true
+      if (!mounted) return; // ✅ Wenn der Screen nicht mehr existiert → abbrechen
+
       final mobileDocs = snapshot.docs
           .where((doc) => (doc.data()['isMobileUnit'] ?? false) == true)
           .toList();
 
-      if (mobileDocs.isEmpty) return; // keine mobile Einheit vorhanden
+      if (mobileDocs.isEmpty) return;
 
       final mobileDoc = mobileDocs.first;
       final data = mobileDoc.data();
+
       final pubId = mobileDoc.id;
       final name = data['name'] ?? 'Mobile Einheit';
       final lat = (data['latitude'] ?? 0).toDouble();
       final lon = (data['longitude'] ?? 0).toDouble();
       final isAvailable = data['isAvailable'] ?? true;
+
+
+      // 🔁 aktualisiere das gecachte Objekt (für den Button)
+      _mobilePubCached = Pub(
+        id: pubId,
+        name: name,
+        description: data['description'] ?? '',
+        latitude: lat,
+        longitude: lon,
+        iconPath: data['iconPath'] ?? 'assets/icons/mobile.png',
+        isMobileUnit: true,
+        isOpen: true,
+        capacity: (data['capacity'] ?? 0) is int
+            ? data['capacity']
+            : int.tryParse(data['capacity']?.toString() ?? '0') ?? 0,
+        isAvailable: isAvailable,
+      );
+
+      // 🧭 wähle Icon basierend auf Status
       final iconPath = isAvailable
           ? (data['iconPath'] ?? 'assets/icons/mobile.png')
           : 'assets/icons/mobile_Einsatz.gif';
@@ -228,6 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
         const ImageConfiguration(size: Size(48, 48)),
         iconPath,
       );
+      if (!mounted) return;
 
       setState(() {
         _mobileUnitMarker = Marker(
@@ -244,6 +271,7 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     });
   }
+
 
 
   void _showCheckInNotification(String pubName) async {
@@ -284,6 +312,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // 🚑 Einheit als "belegt" markieren (Firestore-Update)
     await PubManager().updateAvailability(mobilePub.id, false);
+    AchievementManager().notifyAction(AchievementEventType.requestMobileUnit, SessionManager().guestId, pubId: mobilePub.id);
 
     // 📡 Benachrichtigung an die mobile Einheit
     _showNotificationToMobileUnit();
@@ -312,16 +341,20 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  bool _pubsLoaded = false;
+
+
   List<Widget> get screens {
     return [
       _buildMap(),
       StampScreen(
         guestId: SessionManager().guestId,
         onCheckIn: _checkInGuest,
+        onCheckOut: _checkOutGuest,
       ),
       RankingScreen(),
       AchievementScreen(),
-      FaqScreen(),
+      InfoScreen(),
 
     ];
   }
@@ -329,18 +362,19 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    _initNotifications();
-    _loadCurrentLocationIcon();
-    _initLocation();
-    PubManager().loadPubs().then((_) {
-      _loadPubMarkers();
-    });
-    _listenToGuestsAndActivities();
-    _listenToMobileUnitMarker(); // 👈 hier aktivieren
+    _initializeApp();
+  }
 
-    Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) setState(() {});
-    });
+  Future<void> _initializeApp() async {
+    await PubManager().loadPubs(); // wirklich abwarten
+    await _loadPubMarkers();       // erst danach Marker setzen
+    setState(() => _pubsLoaded = true);
+    _listenToMobileUnitMarker();
+    _listenToGuestsAndActivities();
+    _loadCurrentLocationIcon();
+    await _initLocation();
+    await _loadMobilePub();
+    AchievementManager().initialize();
   }
 
   Future<void> _loadCurrentLocationIcon() async {
@@ -359,6 +393,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _updateCurrentLocationMarker() {
+    if (!mounted) return; // ✅ verhindert setState nach dispose
     if (_currentLocation == null || _currentLocationIcon == null) return;
 
     final selfMarker = Marker(
@@ -376,13 +411,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _guestMarkers.add(selfMarker);
     });
   }
-  void testLocation() async {
-    final location = Location();
-    final loc = await location.getLocation();
-    print("📍 Test: ${loc.latitude}, ${loc.longitude}");
-  }
 
-  void _initLocation() async {
+  Future<void> _initLocation() async {
+
     final location = Location();
 
     bool serviceEnabled = await location.serviceEnabled();
@@ -399,40 +430,46 @@ class _HomeScreenState extends State<HomeScreen> {
       permissionGranted = await location.requestPermission();
     }
 
-    if (permissionGranted == PermissionStatus.deniedForever) {
-      print("❌ Standortberechtigung dauerhaft verweigert");
+    if (permissionGranted != PermissionStatus.granted) {
+      print("❌ Keine Standortberechtigung");
       return;
     }
 
-    // ✅ Listener sofort starten – egal ob initiale Location null ist
-    location.onLocationChanged.listen((loc) {
-      if (!mounted) return;
-      _currentLocation = loc;
-
-      print("📍 Live-Update: ${loc.latitude}, ${loc.longitude}");
-
-      // 🔄 Firestore-Update
-      GuestManager().updateGuestLocation(
-        guestId: SessionManager().guestId,
-        latitude: loc.latitude ?? 0,
-        longitude: loc.longitude ?? 0,
-      );
-
-      _updateCurrentLocationMarker();
-      setState(() {});
-    });
-
     try {
+      // ✅ Aktuelle Position abfragen (einmalig)
       final loc = await location.getLocation();
       if (loc.latitude != null && loc.longitude != null) {
         _currentLocation = loc;
-        print("✅ Erste Position: ${loc.latitude}, ${loc.longitude}");
-        _updateCurrentLocationMarker();
+        print("📍 Erste Position: ${loc.latitude}, ${loc.longitude}");
       }
+      GuestManager().updateGuestLocation(
+        guestId: SessionManager().guestId,
+        latitude: loc.latitude!,
+        longitude: loc.longitude!,
+      );
+
+      // ✅ Danach: Live-Updates starten
+      _locationSubscription = location.onLocationChanged.listen((loc) {
+        if (!mounted) return;
+        _currentLocation = loc;
+        _updateCurrentLocationMarker();
+        setState(() {});
+        GuestManager().updateGuestLocation(
+          guestId: SessionManager().guestId,
+          latitude: loc.latitude!,
+          longitude: loc.longitude!,
+        );
+        // 🔥 Achievement-Event für Standort-Updates
+        AchievementManager().notifyAction(
+          AchievementEventType.locationUpdate,
+          SessionManager().guestId, // dein aktueller Gast
+        );
+      });
     } catch (e) {
-      print("⚠️ getLocation() fehlgeschlagen: $e");
+      print("⚠️ Fehler bei getLocation(): $e");
     }
   }
+
 
 
 
@@ -563,7 +600,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final mobilePub = _mobilePub;
+    if (!_pubsLoaded) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF121212),
+        body: Center(
+          child: CircularProgressIndicator(color: Colors.orangeAccent),
+        ),
+      );
+    }
+    final mobilePub = _mobilePubCached;
 
     return Scaffold(
       appBar: AppBar(
@@ -649,8 +694,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               builder: (_) => PubInfoScreen(
                                 pub: nextPub,
                                 guestId: SessionManager().guestId,
-                                // guestCheckIns fällt weg – PubInfoScreen sollte statt dessen die Activities nutzen
                                 onCheckIn: _checkInGuest,
+                                onCheckOut: _checkOutGuest,
                               ),
                             ),
                           );
@@ -707,7 +752,7 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(icon: Icon(Icons.card_giftcard), label: "Stempelkarte"),
           BottomNavigationBarItem(icon: Icon(Icons.leaderboard), label: "Ranking"),
       BottomNavigationBarItem(icon: Icon(Icons.emoji_events), label: "Erfolge"),
-      BottomNavigationBarItem(icon: Icon(Icons.help), label: "FAQ"),
+      BottomNavigationBarItem(icon: Icon(Icons.info_outline), label: "Info"),
         ],
       ),
     );
@@ -715,9 +760,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   final Map<String, BitmapDescriptor> _iconCache = {};
 
-  Future<BitmapDescriptor> _getIcon(String path) async {
+  Future<BitmapDescriptor> _getIcon(String path, int targetWidth, int targetHeight) async {
     final data = await rootBundle.load(path);
-    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List(), targetWidth: 96, targetHeight: 96);
+    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List(), targetWidth: targetWidth, targetHeight: targetHeight);
     final frame = await codec.getNextFrame();
     final bytes = (await frame.image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
     return BitmapDescriptor.fromBytes(bytes);
@@ -731,7 +776,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     for (var pub in pubs) {
       final iconPath = pub.isOpen ? pub.iconPath : 'assets/icons/closed.png';
-      final icon = await _getIcon(iconPath);
+      final icon = await _getIcon(iconPath,96,96);
 
       final marker = Marker(
         markerId: MarkerId(pub.id),
@@ -748,6 +793,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   pub: pub,
                   guestId: SessionManager().guestId,
                   onCheckIn: _checkInGuest,
+                  onCheckOut: _checkOutGuest,
                 ),
               ),
             );
@@ -766,6 +812,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _pubMarkers = pubMarkers;
       _mobileUnitMarker = mobileMarker;
     });
+    if (_mapController != null && _pubMarkers.isNotEmpty) {
+      Future.delayed(const Duration(milliseconds: 500), _fitMapToMarkers);
+    }
   }
 
 
@@ -781,8 +830,8 @@ class _HomeScreenState extends State<HomeScreen> {
         pub.longitude,
       );
 
-      if (distance <= 50) { // weniger als 50 Meter
-        _checkInGuest(guestId,pub.id);
+      if (distance <= 20) { // weniger als 50 Meter
+        await _checkInGuest(guestId,pub.id);
       }
     }
   }
@@ -790,12 +839,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final location = _currentLocation;
     if (location != null) {
       final activity = Activity(
+        id: '',
         guestId: guestId,
-        guestName: widget.userName,
         pubId: pubId,
-        pubName: PubManager().allPubs.firstWhere((p) => p.id == pubId).name,
         action: action,
-        timestamp: DateTime.now(),
+        timestampBegin: DateTime.now(),
         latitude: location.latitude ?? 0,
         longitude: location.longitude ?? 0,
       );
@@ -804,8 +852,31 @@ class _HomeScreenState extends State<HomeScreen> {
 
   }
 
+  Future<void> _checkOutGuest(String guestId, String pubId) async {
+    AchievementManager().notifyAction(AchievementEventType.checkOut, guestId, pubId: pubId);
+
+    print("🔁 Checkout: $pubId ($guestId)");
+
+    final checkInActivity = await ActivityManager().getCheckInActivity(guestId, pubId);
+
+    if (checkInActivity != null) {
+      checkInActivity.timestampEnd = DateTime.now();
+      await ActivityManager().updateActivity(checkInActivity);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("✅ Erfolgreich ausgecheckt!")),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("⚠️ Kein aktiver Check-in gefunden.")),
+      );
+    }
+  }
+
+
   Future<void> _checkInGuest(String guestId, String pubId, {bool consumeDrink = false}) async {
     // Pub besorgen (nur fürs Logging/Name)
+    AchievementManager().notifyAction(AchievementEventType.checkIn, guestId, pubId: pubId);
     final pub = PubManager().allPubs.firstWhere((p) => p.id == pubId, orElse: () =>
         Pub(id: pubId, name: 'Kneipe', description: '', latitude: 0, longitude: 0, iconPath: '')
     );
@@ -817,12 +888,11 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!consumeDrink) {
       await ActivityManager().logActivity(
         Activity(
+          id: '',
           guestId: SessionManager().guestId,          // <- aus deinem SessionManager
-          guestName: SessionManager().userName ?? '', // optional
           pubId: pubId,
-          pubName: pub.name,
           action: 'check-in',
-          timestamp: now,
+          timestampBegin: now,
           latitude: (loc?.latitude ?? 0).toDouble(),
           longitude: (loc?.longitude ?? 0).toDouble(),
         ),
@@ -831,12 +901,11 @@ class _HomeScreenState extends State<HomeScreen> {
       // Drink Activity
       await ActivityManager().logActivity(
         Activity(
+          id: '',
           guestId: SessionManager().guestId,
-          guestName: SessionManager().userName ?? '',
           pubId: pubId,
-          pubName: pub.name,
           action: 'drink',
-          timestamp: now,
+          timestampBegin: now,
           latitude: (loc?.latitude ?? 0).toDouble(),
           longitude: (loc?.longitude ?? 0).toDouble(),
         ),

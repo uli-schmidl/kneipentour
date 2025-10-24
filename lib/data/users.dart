@@ -1,6 +1,5 @@
 import 'package:kneipentour/models/user.dart';
 
-import '../models/pub.dart';
 
 List<UserAccount> users = [
   UserAccount(

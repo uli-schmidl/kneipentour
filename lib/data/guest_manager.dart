@@ -6,33 +6,38 @@ class GuestManager {
   factory GuestManager() => _instance;
   GuestManager._internal();
 
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final _guestsCollection = FirebaseFirestore.instance.collection('guests');
 
+  /// 🔹 Erstellt oder aktualisiert einen Gast
   Future<void> createOrUpdateGuest(String guestId, String name) async {
-    final docRef = _firestore.collection('guests').doc(guestId);
+    final docRef = _guestsCollection.doc(guestId);
 
-    final doc = await docRef.get();
-    if (!doc.exists) {
-      await docRef.set({
-        'guestId': guestId,
-        'name': name,
-        'latitude': 0.0,
-        'longitude': 0.0,
-        'drinksConsumed': 0,
-        'currentPubId': null,
-        'lastUpdated': FieldValue.serverTimestamp(),
-      });
-      print("👤 Neuer Gast angelegt: $name ($guestId)");
-    } else {
-      await docRef.update({
-        'name': name,
-        'lastUpdated': FieldValue.serverTimestamp(),
-      });
-      print("🔁 Gast aktualisiert: $name ($guestId)");
+    try {
+      final doc = await docRef.get();
+      if (!doc.exists) {
+        await docRef.set({
+          'guestId': guestId,
+          'name': name,
+          'latitude': 0.0,
+          'longitude': 0.0,
+          'drinksConsumed': 0,
+          'currentPubId': null,
+          'lastUpdated': FieldValue.serverTimestamp(),
+        });
+        print("👤 Neuer Gast angelegt: $name ($guestId)");
+      } else {
+        await docRef.update({
+          'name': name,
+          'lastUpdated': FieldValue.serverTimestamp(),
+        });
+        print("🔁 Gast aktualisiert: $name ($guestId)");
+      }
+    } catch (e) {
+      print("❌ Fehler bei createOrUpdateGuest: $e");
     }
   }
 
-  /// 🔹 Aktualisiert den Standort und Status des Gastes in Firestore
+  /// 📍 Aktualisiert Standort und Status des Gastes
   Future<void> updateGuestLocation({
     required String guestId,
     required double latitude,
@@ -40,20 +45,25 @@ class GuestManager {
     String? currentPubId,
     int? drinksConsumed,
   }) async {
-    await _firestore.collection('guests').doc(guestId).set({
-      'guestId': guestId,
-      'latitude': latitude,
-      'longitude': longitude,
-      'currentPubId': currentPubId,
-      'drinksConsumed': drinksConsumed ?? 0,
-      'lastUpdated': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    try {
+      await _guestsCollection.doc(guestId).set({
+        'latitude': latitude,
+        'longitude': longitude,
+        'currentPubId': currentPubId,
+        'drinksConsumed': drinksConsumed ?? 0,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      print("✅ Standort aktualisiert für $guestId → $latitude, $longitude");
+    } catch (e) {
+      print("❌ Fehler beim Standort-Update: $e");
+    }
   }
 
-  /// 🍻 Getränk hinzufügen
+  /// 🍺 Getränk hinzufügen
   Future<void> addDrink(String guestId, String pubId, String pubName) async {
     final drink = Drink(pubId: pubId, pubName: pubName, time: DateTime.now());
-    await _firestore.collection('guests').doc(guestId).update({
+    await _guestsCollection.doc(guestId).update({
       'drinks': FieldValue.arrayUnion([drink.toMap()]),
     });
   }
@@ -61,24 +71,38 @@ class GuestManager {
   /// 🏠 Besuch speichern
   Future<void> addVisit(String guestId, String pubId, String pubName) async {
     final visit = Visit(pubId: pubId, pubName: pubName, time: DateTime.now());
-    await _firestore.collection('guests').doc(guestId).update({
+    await _guestsCollection.doc(guestId).update({
       'visits': FieldValue.arrayUnion([visit.toMap()]),
     });
   }
 
-  /// ➕ Neuen Gast registrieren
-  Future<void> addGuest(Guest guest) async {
-    await _firestore.collection('guests').doc(guest.id).set(guest.toMap());
-  }
-
-  /// 🔹 Liest alle Gäste aus Firestore (für Live-Map)
+  /// 🔹 Alle Gäste-Updates live (z. B. für Karte)
   Stream<QuerySnapshot<Map<String, dynamic>>> getGuestsStream() {
-    return _firestore.collection('guests').snapshots();
+    return _guestsCollection.snapshots();
   }
 
+  /// 🔍 Prüfen, ob Name bereits vergeben ist
   Future<bool> nameExists(String name) async {
-    final doc = await FirebaseFirestore.instance.collection('guests').doc(name).get();
+    final doc = await _guestsCollection.doc(name).get();
     return doc.exists;
+  }
+
+  /// 🧑 Gastnamen über ID abrufen
+  Future<String?> getGuestById(String guestId) async {
+    try {
+      final doc = await _guestsCollection.doc(guestId).get();
+      if (doc.exists) {
+        final guest = Guest.fromMap(doc.data()!, doc.id);
+        return guest.name;
+      }
+    } catch (e) {
+      print("⚠️ Fehler beim Abrufen des Gast-Namens: $e");
+    }
+    return null;
+  }
+
+  Future<void> deleteGuest(String guestId) async {
+    await FirebaseFirestore.instance.collection('guests').doc(guestId).delete();
   }
 
 }

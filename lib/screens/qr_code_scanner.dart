@@ -7,7 +7,7 @@ class QRScannerScreen extends StatefulWidget {
   final Map<String, List<CheckIn>> guestCheckIns;
   final Function(String pubId, String guestId) onCheckIn;
 
-  QRScannerScreen({
+  const QRScannerScreen({super.key, 
     required this.guestId,
     required this.guestCheckIns,
     required this.onCheckIn,
@@ -28,7 +28,7 @@ class _QRScannerScreenState extends State<QRScannerScreen> {
   }
 
   void _onQRViewCreated(QRViewController ctrl) {
-    this.controller = ctrl;
+    controller = ctrl;
     ctrl.scannedDataStream.listen((scanData) {
       String scannedPubId = scanData.code!;
 

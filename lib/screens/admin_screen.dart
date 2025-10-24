@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:kneipentour/data/session_manager.dart';
 import 'package:kneipentour/models/user.dart';
+import 'package:kneipentour/screens/start_screen.dart';
 import '../models/pub.dart';
 import '../data/pub_manager.dart';
 import 'wirt_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 
 class AdminScreen extends StatefulWidget {
   final String adminName;
@@ -43,6 +47,7 @@ class _AdminScreenState extends State<AdminScreen> {
     // Erstelle einen temporären Benutzer für diese Kneipe
     final tempUser = UserAccount(
       username: pub.name,
+      assignedPubId: pub.id,
       password: '', // kein Passwort nötig hier
       role: UserRole.wirt,
     );
@@ -58,14 +63,126 @@ class _AdminScreenState extends State<AdminScreen> {
       });
     });
   }
+  Future<void> _addUserDialog() async {
+    final usernameController = TextEditingController();
+    final passwordController = TextEditingController();
+    UserRole selectedRole = UserRole.wirt;
 
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text("Neuen Benutzer hinzufügen"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: usernameController,
+                decoration: const InputDecoration(labelText: "Benutzername"),
+              ),
+              TextField(
+                controller: passwordController,
+                decoration: const InputDecoration(labelText: "Passwort"),
+                obscureText: true,
+              ),
+              const SizedBox(height: 12),
+              DropdownButton<UserRole>(
+                value: selectedRole,
+                items: UserRole.values
+                    .where((r) => r != UserRole.guest) // Gäste hier nicht relevant
+                    .map((role) => DropdownMenuItem(
+                  value: role,
+                  child: Text(role.name.toUpperCase()),
+                ))
+                    .toList(),
+                onChanged: (r) => selectedRole = r!,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text("Abbrechen"),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final username = usernameController.text.trim();
+                final password = passwordController.text.trim();
+
+                if (username.isEmpty || password.isEmpty) return;
+
+                await FirebaseFirestore.instance.collection('users').add({
+                  'username': username,
+                  'password': password,
+                  'role': selectedRole.name,
+                });
+
+                Navigator.pop(ctx);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("Benutzer '$username' hinzugefügt ✅")),
+                );
+                setState(() {});
+              },
+              child: const Text("Speichern"),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteUser(String userId) async {
+    await FirebaseFirestore.instance.collection('users').doc(userId).delete();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Benutzer gelöscht ❌")),
+    );
+    setState(() {});
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text("Adminbereich – ${widget.adminName}"),
-        backgroundColor: Colors.orange.shade700,
+        title: Text("Admin-Bereich"),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: "Abmelden",
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text("Abmelden"),
+                  content: const Text("Möchtest du dich wirklich abmelden?"),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text("Abbrechen"),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text("Abmelden"),
+                    ),
+                  ],
+                ),
+              );
+
+              if (confirm == true) {
+                await SessionManager().clearSession();
+
+                if (!context.mounted) return;
+
+                Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const StartScreen()),
+                      (route) => false,
+                );
+              }
+            },
+          ),
+        ],
       ),
+
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: [
@@ -107,8 +224,50 @@ class _AdminScreenState extends State<AdminScreen> {
           const SizedBox(height: 16),
 
           Text(
-            "Weitere Optionen",
+            "Benutzerverwaltung",
             style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 12),
+
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('users').snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final docs = snapshot.data!.docs;
+
+              if (docs.isEmpty) {
+                return const Text("Noch keine Benutzer angelegt.");
+              }
+
+              return Column(
+                children: docs.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return Card(
+                    child: ListTile(
+                      title: Text(data['username'] ?? 'Unbekannt'),
+                      subtitle: Text("Rolle: ${data['role'] ?? 'unbekannt'}"),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () => _deleteUser(doc.id),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+
+          const SizedBox(height: 12),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.person_add),
+            label: const Text("Neuen Benutzer hinzufügen"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.orangeAccent,
+              foregroundColor: Colors.black,
+            ),
+            onPressed: _addUserDialog,
           ),
           const SizedBox(height: 12),
 

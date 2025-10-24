@@ -17,13 +17,16 @@ class _AchievementScreenState extends State<AchievementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 🔍 Nur sichtbare oder freigeschaltete Achievements anzeigen
+    final visibleAchievements = achievements
+        .where((a) => !a.hidden || (a.hidden && a.unlocked))
+        .toList();
     final activeChallenges = challengeManager.active;
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         title: const Text('Erfolge & Challenges'),
-        backgroundColor: Colors.orangeAccent,
       ),
       body: ListView(
         padding: const EdgeInsets.all(12),
@@ -38,7 +41,13 @@ class _AchievementScreenState extends State<AchievementScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          ...achievements.map((a) => _buildAchievementCard(a)),
+          if (visibleAchievements.isEmpty)
+            const Text(
+              'Noch keine Erfolge freigeschaltet 🎯',
+              style: TextStyle(color: Colors.white60, fontSize: 14),
+            )
+          else
+            ...visibleAchievements.map(_buildAchievementCard),
 
           if (activeChallenges.isNotEmpty) ...[
             const SizedBox(height: 24),
@@ -64,7 +73,18 @@ class _AchievementScreenState extends State<AchievementScreen> {
     return Card(
       color: const Color(0xFF1E1E1E),
       child: ListTile(
-        leading: Image.asset(a.iconPath, height: 40),
+        leading: ColorFiltered(
+          colorFilter: a.unlocked
+              ? const ColorFilter.mode(Colors.transparent, BlendMode.multiply)
+              : const ColorFilter.matrix(<double>[
+            0.2126, 0.7152, 0.0722, 0, 0, // Grauformel R
+            0.2126, 0.7152, 0.0722, 0, 0, // Grauformel G
+            0.2126, 0.7152, 0.0722, 0, 0, // Grauformel B
+            0, 0, 0, 1, 0,                 // Alpha
+          ]),
+          child: Image.asset(a.iconPath, height: 40),
+        ),
+
         title: Text(
           a.title,
           style: const TextStyle(color: Colors.white),

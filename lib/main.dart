@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:kneipentour/data/pub_manager.dart';
 import 'screens/start_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // wird automatisch erstellt
@@ -19,6 +20,7 @@ class KneipentourApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Kneipentour 2025',
+      navigatorKey: PubManager().navigatorKey,
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark, // 👈 immer Dark Mode aktiv
         darkTheme: ThemeData(
@@ -32,10 +34,8 @@ class KneipentourApp extends StatelessWidget {
           primary: Colors.orangeAccent,
           secondary: Colors.amber,
           surface: Color(0xFF121212),
-          background: Color(0xFF0E0E0E),
           onPrimary: Colors.black,
           onSurface: Colors.white,
-          onBackground: Colors.white,
         ),
 
         // 🧡 AppBar Design

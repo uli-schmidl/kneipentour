@@ -1,14 +1,15 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:kneipentour/data/pub_manager.dart';
 import 'package:kneipentour/models/user.dart';
-import '../data/users.dart';
-import '../models/pub.dart';
+import 'package:kneipentour/screens/home_screen.dart';
+import 'package:kneipentour/screens/start_screen.dart';
 import 'admin_screen.dart';
 import 'wirt_screen.dart';
 import 'mobile_unit_screen.dart';
-import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
   @override
   _LoginScreenState createState() => _LoginScreenState();
 }
@@ -17,48 +18,77 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   String? _errorMessage;
+  bool _isLoading = false;
 
-  void _login() {
+  Future<void> _login() async {
+    setState(() {
+      _errorMessage = null;
+      _isLoading = true;
+    });
+
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
 
-    final user = users.firstWhere(
-          (u) => u.username == username && u.password == password,
-      orElse: () => UserAccount(username: "", password: "", role: UserRole.guest),
-    );
+    try {
+      final query = await FirebaseFirestore.instance
+          .collection('users')
+          .where('username', isEqualTo: username)
+          .where('password', isEqualTo: password)
+          .limit(1)
+          .get();
+      if (query.docs.isEmpty) {
+        setState(() {
+          _errorMessage = "❌ Ungültiger Benutzername ($username) oder Passwort ($password)";
+          _isLoading = false;
+        });
+        return;
+      }
 
-    if (user.username.isEmpty) {
-      setState(() => _errorMessage = "Ungültiger Benutzername oder Passwort");
-      return;
+      final user = UserAccount.fromFirestore(query.docs.first);
+
+      Widget targetScreen;
+      switch (user.role) {
+        case UserRole.admin:
+          targetScreen = AdminScreen(adminName: user.username);
+          break;
+        case UserRole.wirt:
+          targetScreen = WirtScreen(user: user);
+          break;
+        case UserRole.mobile:
+          targetScreen = MobileUnitScreen(user: user);
+          break;
+        default:
+          targetScreen = HomeScreen(userName: user.username);
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => targetScreen),
+      );
+    } catch (e) {
+      setState(() {
+        _errorMessage = "Fehler beim Login: $e";
+      });
+    } finally {
+      setState(() => _isLoading = false);
     }
-
-    Widget targetScreen;
-    switch (user.role) {
-      case UserRole.admin:
-        targetScreen = AdminScreen(adminName: username);
-        break;
-      case UserRole.wirt:
-        targetScreen = WirtScreen(
-          user: user
-        );
-        break;
-      case UserRole.mobile:
-        targetScreen = MobileUnitScreen(user: user);
-        break;
-      default:
-        targetScreen = HomeScreen(userName: user.username);
-    }
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => targetScreen),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Login für Wirte & Admins")),
+      appBar: AppBar(
+          title: const Text("Login für Wirte & Admins"),
+          leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const StartScreen()),
+            );
+          },
+        ),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -66,26 +96,28 @@ class _LoginScreenState extends State<LoginScreen> {
           children: [
             TextField(
               controller: _usernameController,
-              decoration: InputDecoration(labelText: "Benutzername"),
+              decoration: const InputDecoration(labelText: "Benutzername"),
             ),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
             TextField(
               controller: _passwordController,
-              decoration: InputDecoration(labelText: "Passwort"),
+              decoration: const InputDecoration(labelText: "Passwort"),
               obscureText: true,
             ),
-            SizedBox(height: 20),
-            ElevatedButton(
+            const SizedBox(height: 20),
+            _isLoading
+                ? const CircularProgressIndicator()
+                : ElevatedButton(
               onPressed: _login,
-              child: Text("Anmelden"),
+              child: const Text("Anmelden"),
             ),
             if (_errorMessage != null) ...[
-              SizedBox(height: 10),
+              const SizedBox(height: 10),
               Text(
                 _errorMessage!,
-                style: TextStyle(color: Colors.red),
+                style: const TextStyle(color: Colors.red),
               ),
-            ]
+            ],
           ],
         ),
       ),

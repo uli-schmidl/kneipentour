@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:kneipentour/data/session_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/screens/home_screen.dart';
 import 'login_screen.dart';
+import 'dart:math';
 
 class StartScreen extends StatefulWidget {
   const StartScreen({super.key});
@@ -13,7 +15,7 @@ class StartScreen extends StatefulWidget {
 
 class _StartScreenState extends State<StartScreen> {
   final TextEditingController _nameController = TextEditingController();
-  String generatedName = "DurstigerDachs"; // später random generieren
+  String generatedName = "DurstigerDachs";
   bool _loading = true;
 
   @override
@@ -25,10 +27,9 @@ class _StartScreenState extends State<StartScreen> {
   Future<void> _checkExistingUser() async {
     final prefs = await SharedPreferences.getInstance();
     final savedName = prefs.getString('guestName');
-
-    if (savedName != null && savedName.isNotEmpty) {
-      // 🔹 Gast existiert bereits → direkt weiterleiten
-      print("🔁 Automatischer Login als $savedName");
+    if (savedName != null) {
+      debugPrint("🔁 Automatischer Login als $savedName");
+      SessionManager().initGuest(guestId: savedName, name: savedName);
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => HomeScreen(userName: savedName)),
@@ -40,7 +41,7 @@ class _StartScreenState extends State<StartScreen> {
 
   Future<void> _startTour() async {
     final prefs = await SharedPreferences.getInstance();
-    final name = _nameController.text.isEmpty
+    final name = _nameController.text.trim().isEmpty
         ? generatedName
         : _nameController.text.trim();
 
@@ -54,7 +55,6 @@ class _StartScreenState extends State<StartScreen> {
       return;
     }
 
-    // 🔹 Prüfen, ob der Name bereits vergeben ist
     final exists = await GuestManager().nameExists(name);
     if (exists) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -66,11 +66,13 @@ class _StartScreenState extends State<StartScreen> {
       return;
     }
 
-    // 🔹 Firestore: neuen Gast-Eintrag erzeugen
+    // 🔹 Gast-ID == Name
     await GuestManager().createOrUpdateGuest(name, name);
 
     // 🔹 Lokal speichern
     await prefs.setString('guestName', name);
+    await prefs.setString('guestId', name);
+    SessionManager().initGuest(guestId: name, name: name);
 
     // 🔹 Weiter zur HomeScreen
     Navigator.pushReplacement(
@@ -79,27 +81,31 @@ class _StartScreenState extends State<StartScreen> {
     );
   }
 
-  void _generateRandomName() async {
-    final adjectives = ["Durstiger", "Fröhlicher", "Verwegener", "Beschwipster", "Ausgetrockneter",
-      "Bierdurstiger", "Unterhopfter", "Motivierter","Lustiger","Betrunkener","Torkelnder", "Feierwütiger", "Schapsfreudiger", "Bieriger", "Schwankender",
-    "Saufender", "Zünftiger", "Lallender", "Prostender","Saufender","Feiernder","Tanzender"];
-    final nouns = ["Dachs", "Bierkrug", "Fuchs", "Zapfhahn", "Biber", "Unkerich", "Rehbock", "Mops", "Dackel", "Lümmel", "Frosch","Storch", "Pirat", "Schurke"
-    ,"Barde", "Zecher", "Luchs","Lurch","Löwe", "Tiger", "Schwan","Geier","Falke", "Kojote","Rentier","Schluckspecht", "Papst","Tanzbär","Hengst", "Brudi",
-      "Pilsprophet","Schnapsritter","Tresentiger"];
+  /// 🎲 Zufälligen, noch freien Namen generieren
+  Future<void> _generateRandomName() async {
+    const adjectives = [
+      "Durstiger", "Fröhlicher", "Verwegener", "Beschwipster", "Ausgetrockneter",
+      "Bierdurstiger", "Unterhopfter", "Motivierter", "Lustiger", "Betrunkener",
+      "Torkelnder", "Feierwütiger", "Schnapsfreudiger", "Zünftiger", "Lallender",
+      "Saufender", "Prostender", "Feiernder", "Tanzender"
+    ];
 
+    const nouns = [
+      "Dachs", "Bierkrug", "Fuchs", "Zapfhahn", "Biber", "Rehbock", "Mops",
+      "Lümmel", "Pirat", "Schurke", "Barde", "Zecher", "Luchs", "Tiger",
+      "Schluckspecht", "Papst", "Tanzbär", "Hengst", "Brudi", "Pilsprophet"
+    ];
+
+    final rnd = Random();
     String newName;
-    bool exists = true;
+    bool exists;
 
-    // 🔁 So lange wiederholen, bis ein Name frei ist
     do {
-      newName =
-      "${adjectives[DateTime.now().millisecond % adjectives.length]}${nouns[DateTime.now().second % nouns.length]}";
+      newName = "${adjectives[rnd.nextInt(adjectives.length)]}${nouns[rnd.nextInt(nouns.length)]}";
       exists = await GuestManager().nameExists(newName);
     } while (exists);
 
-    setState(() {
-      generatedName = newName;
-    });
+    setState(() => generatedName = newName);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -109,15 +115,12 @@ class _StartScreenState extends State<StartScreen> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     if (_loading) {
       return const Scaffold(
         backgroundColor: Colors.black,
-        body: Center(
-          child: CircularProgressIndicator(color: Colors.orangeAccent),
-        ),
+        body: Center(child: CircularProgressIndicator(color: Colors.orangeAccent)),
       );
     }
 
@@ -126,33 +129,23 @@ class _StartScreenState extends State<StartScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // 🌆 Hintergrundbild
-          Image.asset(
-            'assets/icons/flyer.jpg',
-            fit: BoxFit.cover,
-          ),
-
-          // 🌑 Dunkles Overlay
+          Image.asset('assets/icons/flyer.jpg', fit: BoxFit.cover),
           Container(color: Colors.black.withOpacity(0.6)),
 
-          // 🔐 Login-Icon oben rechts
+          // 🔐 Admin-Login
           Positioned(
             top: 40,
             right: 20,
             child: IconButton(
-              icon: const Icon(Icons.admin_panel_settings,
-                  color: Colors.white70, size: 30),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => LoginScreen()),
-                );
-              },
+              icon: const Icon(Icons.admin_panel_settings, color: Colors.white70, size: 30),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => LoginScreen()),
+              ),
               tooltip: "Login für Wirte & Admins",
             ),
           ),
 
-          // ⚡ Inhalt unten
           Align(
             alignment: Alignment.bottomCenter,
             child: Container(
@@ -179,7 +172,6 @@ class _StartScreenState extends State<StartScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // 🧑‍🎤 Namenseingabe
                   TextField(
                     controller: _nameController,
                     style: const TextStyle(color: Colors.white),
@@ -197,7 +189,6 @@ class _StartScreenState extends State<StartScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // 🎲 Zufälligen Namen generieren
                   TextButton(
                     onPressed: _generateRandomName,
                     child: const Text(
@@ -207,7 +198,6 @@ class _StartScreenState extends State<StartScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // 🚀 Start-Button
                   ElevatedButton.icon(
                     icon: const Icon(Icons.local_bar),
                     label: const Text("Tour starten"),
