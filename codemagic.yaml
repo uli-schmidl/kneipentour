@@ -27,3 +27,26 @@ workflows:
       email:
         recipients:
           - uli-schmidl@web.de
+  android_release:
+    name: Android Release Build
+    instance_type: linux_x2
+    environment:
+      vars:
+        CM_KEYSTORE_PASSWORD: "test1234"
+        CM_KEY_ALIAS: "uschmidl"
+        CM_KEY_PASSWORD: "dein_key_passwort"
+        CM_KEYSTORE_PATH: "my-release-key.jks"
+    scripts:
+      - name: Prepare keystore
+        script: |
+          echo "Using keystore at $KEYSTORE_PATH"
+      - name: Build signed release
+        script: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=$KEYSTORE_PATH \
+            -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
+            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
+            -Pandroid.injected.signing.key.password=$KEY_PASSWORD
+    artifacts:
+        - android/app/build/outputs/**/*.apk
+        - android/app/build/outputs/**/*.aab
