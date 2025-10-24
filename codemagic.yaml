@@ -1,45 +1,46 @@
 workflows:
   kneipentour_build:
-    name: Kneipentour Build
+    name: Kneipentour iOS & Android Build
     max_build_duration: 60
+    instance_type: mac_mini_m2
+
     environment:
-      flutter: "stable"
+      flutter: "stable"   # oder konkret z. B. "3.22.3"
       xcode: latest
-      android_signing:
-        - keystore_reference
       vars:
         PACKAGE_NAME: "de.seitendorf.kneipentour"
+
     scripts:
-      - name: 🔧 Install Dependencies
-        script: |
-          flutter pub get
-          flutterfire configure --yes --project=kneipentour
-      - name: 🔥 Build Android APK
-        script: |
-          flutter build apk --release
-      - name: Clean Flutter & iOS build
+      - name: 🔧 Get Flutter dependencies
+        script: flutter pub get
+
+      - name: 🧹 Clean and recreate iOS project
         script: |
           flutter clean
-          rm -rf ios/Pods ios/Podfile.lock ios/.symlinks
-          rm -rf ~/Library/Caches/CocoaPods
-          flutter pub get
-      - name: Recreate iOS platform
-        script: flutter create --platforms=ios --overwrite .
-      - name: Install CocoaPods
+          flutter create --platforms=ios --overwrite .
+
+      - name: 📦 Install CocoaPods
         script: |
           cd ios
           pod repo update
           pod install
           cd ..
-      - name: Build iOS IPA
-        script: flutter build ipa --release
+
+      - name: ⚙️ Build iOS (unsigned)
+        script: flutter build ipa --debug --no-codesign
+
+      - name: 🔥 Build Android (Release)
+        script: flutter build apk --release
+
     artifacts:
       - build/app/outputs/flutter-apk/app-release.apk
       - build/ios/ipa/*.ipa
+
     publishing:
       email:
         recipients:
           - uli-schmidl@web.de
+
   android_release:
     name: Android Release Build
     instance_type: linux_x2
@@ -50,10 +51,7 @@ workflows:
         CM_KEY_PASSWORD: "dein_key_passwort"
         CM_KEYSTORE_PATH: "my-release-key.jks"
     scripts:
-      - name: Prepare keystore
-        script: |
-          echo "Using keystore at $KEYSTORE_PATH"
-      - name: Build signed release
+      - name: 🔑 Build signed Android release
         script: |
           ./gradlew assembleRelease \
             -Pandroid.injected.signing.store.file=$KEYSTORE_PATH \
@@ -61,5 +59,5 @@ workflows:
             -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
             -Pandroid.injected.signing.key.password=$KEY_PASSWORD
     artifacts:
-        - android/app/build/outputs/**/*.apk
-        - android/app/build/outputs/**/*.aab
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/*.aab
