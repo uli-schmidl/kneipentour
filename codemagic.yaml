@@ -40,11 +40,12 @@ workflows:
           end
           EOF
 
-      - name: 📦 Install CocoaPods
+      - name: Force rebuild Pods
         script: |
           cd ios
           pod deintegrate
-          pod repo update
+          pod cache clean --all
+          rm -rf Pods Podfile.lock .symlinks
           pod install --repo-update
           cd ..
 
@@ -62,3 +63,24 @@ workflows:
       email:
         recipients:
           - uli-schmidl@web.de
+
+  android_release:
+    name: Android Release Build
+    instance_type: linux_x2
+    environment:
+      vars:
+        CM_KEYSTORE_PASSWORD: "test1234"
+        CM_KEY_ALIAS: "mykey"
+        CM_KEY_PASSWORD: "dein_key_passwort"
+        CM_KEYSTORE_PATH: "my-release-key.jks"
+    scripts:
+      - name: 🔑 Build signed Android release
+        script: |
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file=$KEYSTORE_PATH \
+            -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
+            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
+            -Pandroid.injected.signing.key.password=$KEY_PASSWORD
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/*.aab
