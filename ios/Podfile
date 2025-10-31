@@ -1,7 +1,6 @@
 platform :ios, '15.0'
 
-# Lade Flutter Pod Helper
-flutter_application_path = File.expand_path('..', File.dirname(__FILE__))
+flutter_application_path = File.expand_path('..', __dir__)
 require File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb')
 
 target 'Runner' do
@@ -10,11 +9,5 @@ target 'Runner' do
 end
 
 post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    target.build_configurations.each do |config|
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-      config.build_settings['ENABLE_BITCODE'] = 'NO'
-    end
-  end
   flutter_post_install(installer)
 end
