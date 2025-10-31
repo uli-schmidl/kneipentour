@@ -22,12 +22,12 @@ workflows:
           sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]\+;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' ios/Runner.xcodeproj/project.pbxproj
           /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 15.0" ios/Flutter/AppFrameworkInfo.plist
 
-      - name: Install Pods (iOS 15 fix)
+      - name: Clean & Install Pods Fresh
         script: |
           cd ios
-          pod deintegrate || true
-          rm -rf Podfile.lock Pods
-          pod install
+          rm -rf Pods Podfile.lock .symlinks
+          pod repo update
+          pod install --verbose
           cd ..
 
       - name: Build iOS
