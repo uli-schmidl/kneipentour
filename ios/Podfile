@@ -3,11 +3,14 @@ platform :ios, '13.0'
 use_frameworks!
 use_modular_headers!
 
-target 'Runner' do
-  flutter_application_path = File.expand_path('..', __dir__)
-  require File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb')
+flutter_application_path = File.expand_path('../..', __FILE__)
+require File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb')
 
-  install_all_flutter_pods(flutter_application_path)
+target 'Runner' do
+  flutter_install_all_ios_pods(flutter_application_path)
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
 end
 
 post_install do |installer|
