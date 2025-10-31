@@ -2,7 +2,7 @@ platform :ios, '15.0'
 
 # Lade Flutter Pod Helper
 flutter_application_path = File.expand_path('..', File.dirname(__FILE__))
-require File.join(flutter_application_path, 'Flutter', 'podhelper.rb')
+require File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb')
 
 target 'Runner' do
   flutter_ios_podfile_setup
