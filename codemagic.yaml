@@ -11,21 +11,26 @@ workflows:
         PACKAGE_NAME: "de.seitendorf.kneipentour"
 
     scripts:
-      - name: Recreate iOS platform (this is the fix!)
+      - name: Recreate iOS
         script: |
           flutter clean
           flutter pub get
           rm -rf ios .ios
           flutter create --platforms=ios .
 
-      - name: Install CocoaPods
+      - name: Set iOS minimum target (fix Firebase)
+        script: |
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]\+;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' ios/Runner.xcodeproj/project.pbxproj
+          /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 15.0" ios/Flutter/AppFrameworkInfo.plist
+
+      - name: Install Pods
         script: |
           cd ios
           pod repo update
           pod install --repo-update
           cd ..
 
-      - name: Build iOS (no signing)
+      - name: Build iOS
         script: flutter build ios --debug --no-codesign
 
       - name: 🔥 Build Android APK
