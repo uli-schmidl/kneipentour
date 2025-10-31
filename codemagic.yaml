@@ -11,18 +11,30 @@ workflows:
         PACKAGE_NAME: "de.seitendorf.kneipentour"
 
     scripts:
-      - name: Ensure Flutter dependencies
-        script: flutter pub get
+      - name: show project tree
+        script: |
+          echo "==== PROJECT ROOT ===="
+          ls -al
+          echo "==== iOS FOLDER ===="
+          ls -al ios || true
+          echo "==== .IOS FOLDER ===="
+          ls -al .ios || true
 
-      - name: Generate iOS support folder (.ios)
-        script: flutter build ios --debug --no-codesign
+      - name: Flutter Pub Get
+        script: |
+          flutter pub get
 
-      - name: Install CocoaPods correctly
+      - name: Create iOS support folder (.ios)
+        script: |
+          rm -rf .ios
+          flutter build ios --debug --no-codesign
+
+      - name: Re-Install Pods Cleanly
         script: |
           cd ios
-          pod deintegrate || true
           rm -rf Pods Podfile.lock .symlinks
-          pod install --repo-update
+          pod repo update
+          pod install
           cd ..
 
       - name: Build iOS
