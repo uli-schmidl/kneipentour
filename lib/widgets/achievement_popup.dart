@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:confetti/confetti.dart';
-import 'package:audioplayers/audioplayers.dart';
 import '../models/achievement.dart';
 
 class AchievementPopup extends StatefulWidget {
@@ -14,7 +13,6 @@ class AchievementPopup extends StatefulWidget {
 
 class _AchievementPopupState extends State<AchievementPopup> {
   late ConfettiController _confettiController;
-  final AudioPlayer _audioPlayer = AudioPlayer();
 
   @override
   void initState() {
@@ -26,21 +24,21 @@ class _AchievementPopupState extends State<AchievementPopup> {
     _confettiController.play();
 
     // Sound abspielen
-    _playSuccessSound();
+    //_playSuccessSound();
   }
 
-  Future<void> _playSuccessSound() async {
+  /*Future<void> _playSuccessSound() async {
     try {
       await _audioPlayer.play(AssetSource('sounds/achievement.mp3'));
     } catch (e) {
       debugPrint("Fehler beim Sound: $e");
     }
-  }
+  }*/
 
   @override
   void dispose() {
     _confettiController.dispose();
-    _audioPlayer.dispose();
+    //_audioPlayer.dispose();
     super.dispose();
   }
 
