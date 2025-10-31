@@ -16,18 +16,18 @@ workflows:
           flutter clean
           flutter pub get
           rm -rf ios .ios
-          flutter create --platforms=ios .
 
       - name: Set iOS minimum target (fix Firebase)
         script: |
           sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]\+;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' ios/Runner.xcodeproj/project.pbxproj
           /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 15.0" ios/Flutter/AppFrameworkInfo.plist
 
-      - name: Install Pods
+      - name: Install Pods (iOS 15 fix)
         script: |
           cd ios
-          pod repo update
-          pod install --repo-update
+          pod deintegrate || true
+          rm -rf Podfile.lock Pods
+          pod install
           cd ..
 
       - name: Build iOS
