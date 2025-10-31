@@ -3,7 +3,7 @@ platform :ios, '13.0'
 use_frameworks!
 use_modular_headers!
 
-flutter_application_path = File.expand_path(File.join(__dir__, '..'))
+flutter_application_path = File.expand_path('..', __dir__)
 require File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb')
 
 target 'Runner' do
