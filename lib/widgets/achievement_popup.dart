@@ -31,7 +31,7 @@ class _AchievementPopupState extends State<AchievementPopup> {
 
   Future<void> _playSuccessSound() async {
     try {
-      await _audioPlayer.play(AssetSource('assets/sounds/achievement.mp3'));
+      await _audioPlayer.play(AssetSource('sounds/achievement.mp3'));
     } catch (e) {
       debugPrint("Fehler beim Sound: $e");
     }

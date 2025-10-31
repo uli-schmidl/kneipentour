@@ -6,9 +6,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:kneipentour/config/location_config.dart';
 import 'package:kneipentour/data/activity_manager.dart';
 import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/data/pub_manager.dart';
+import 'package:kneipentour/data/rank_manager.dart';
 import 'package:kneipentour/data/session_manager.dart';
 import 'package:kneipentour/models/achievement.dart';
 import 'package:kneipentour/models/activity.dart';
@@ -39,9 +41,20 @@ class _HomeScreenState extends State<HomeScreen> {
   Marker? _mobileUnitMarker;
   BitmapDescriptor? _currentLocationIcon;
   final double notificationDistance = 20;
-  final Map<String, DateTime> _lastPubNotificationTimes = {};
   final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
   Pub? _mobilePubCached;
+  Pub? _cachedNextPub;
+  // Beispiel: fester Mittelpunkt (z. B. Kirchweihplatz in Seitendorf)
+  final LatLng _centerPoint = LocationConfig.centerPoint;
+  bool _isWithinAllowedArea=true;
+  bool _pubsReady = false;
+  bool _locationReady = false;
+  String _currentStatus = "unterwegs";
+
+
+// Sichtbarer Radius in Metern
+  final double _visibleRadius = LocationConfig.allowedRadius; // 1 km
+
 
   StreamSubscription? _pubSub;
   StreamSubscription? _guestSub;
@@ -62,105 +75,11 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void _listenToGuests() {
-    GuestManager().getGuestsStream().listen((snapshot) async{
-      final topGuestId = _getTopGuestIdFromActivities();
-      Set<Marker> markers = {};
-
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final id = data['guestId'];
-        final lat = (data['latitude'] ?? 0).toDouble();
-        final lon = (data['longitude'] ?? 0).toDouble();
-        final drinks = data['drinks'] ?? 0;
-        final currentPub = data['currentPubName'] ?? '';
-        final icon = await _getIcon("assets/icons/you.png",40,96);
-
-        markers.add(
-          Marker(
-            markerId: MarkerId(id),
-            position: LatLng(lat, lon),
-            icon: icon,
-            infoWindow: InfoWindow(
-              title: data['guestName'],
-              snippet: "$drinks Getränke${currentPub.isNotEmpty ? " – $currentPub" : ""}",
-            ),
-          ),
-        );
-      }
-
-      setState(() => _guestMarkers = markers);
-    });
+  Future<void> _maybeUpdateNextPub() async {
+    if (!_pubsReady || !_locationReady) return;
+    await _checkForNextPubChange();
   }
 
-  Future<String?> _getTopGuestIdFromActivities() async {
-    final snapshot = await FirebaseFirestore.instance
-        .collection('activities')
-        .where('action', isEqualTo: 'drink')
-        .get();
-
-    if (snapshot.docs.isEmpty) return null;
-
-    final counts = <String, int>{};
-    for (var doc in snapshot.docs) {
-      final data = doc.data();
-      final guestId = data['guestId'] ?? '';
-      counts[guestId] = (counts[guestId] ?? 0) + 1;
-    }
-
-    final sorted = counts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    return sorted.first.key;
-  }
-
-  void _initNotifications() async {
-    const AndroidInitializationSettings initializationSettingsAndroid =
-    AndroidInitializationSettings('ic_stat_notify'); // 👈 kleines Notification-Icon
-
-    final InitializationSettings initializationSettings =
-    InitializationSettings(android: initializationSettingsAndroid);
-
-    await _notificationsPlugin.initialize(
-      initializationSettings,
-      onDidReceiveNotificationResponse: (NotificationResponse response) {
-        if (response.payload != null) {
-          final pubId = response.payload!;
-          final pub = PubManager().allPubs.firstWhere(
-                (p) => p.id == pubId,
-            orElse: () => Pub(
-              id: '',
-              name: 'Unbekannte Kneipe',
-              description: '',
-              latitude: 0,
-              longitude: 0,
-              iconPath: '',
-              isMobileUnit: false,
-              capacity: 0,
-            ),
-          );
-          if (pub.id.isNotEmpty) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PubInfoScreen(
-                  pub: pub,
-                  guestId: SessionManager().guestId,
-                  onCheckIn: (String guestId, String pubId, {bool consumeDrink = false}) async {
-                    await _checkInGuest(guestId, pubId, consumeDrink: consumeDrink, );
-                  },
-                  onCheckOut: (String guestId, String pubId) async {
-                    await _checkOutGuest(guestId, pubId);
-                  },
-                  currentLocation: _currentLocation,
-                ),
-              ),
-            );
-          }
-        }
-      },
-    );
-  }
 
   void _listenToGuestsAndActivities() {
     GuestManager().getGuestsStream().listen((guestSnap) async {
@@ -175,13 +94,6 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
 
-      String? topGuestId;
-      if (drinksPerGuest.isNotEmpty) {
-        topGuestId = drinksPerGuest.entries.reduce(
-              (a, b) => a.value >= b.value ? a : b,
-        ).key;
-      }
-
       Set<Marker> guestMarkers = {};
       for (var doc in guestSnap.docs) {
         final data = doc.data();
@@ -189,8 +101,13 @@ class _HomeScreenState extends State<HomeScreen> {
         final lat = (data['latitude'] ?? 0).toDouble();
         final lon = (data['longitude'] ?? 0).toDouble();
         final name = data['name'] ?? 'Gast';
+        final drinks = data['drinks'] ?? 0;
+        final rank = RankManager().getRankForDrinks(drinks);
 
-        final isTopGuest = guestId == topGuestId;
+
+        final distance = _calculateDistance(_centerPoint.latitude, _centerPoint.longitude, lat, lon);
+        if (distance > _visibleRadius) continue; // 👉 nur innerhalb von 1 km anzeigen
+
         final icon = await _getIcon("assets/icons/king.png",40,96);
 
         guestMarkers.add(
@@ -198,8 +115,10 @@ class _HomeScreenState extends State<HomeScreen> {
             markerId: MarkerId('guest_$guestId'),
             position: LatLng(lat, lon),
             icon: icon,
-            infoWindow: InfoWindow(title: name),
-          ),
+            infoWindow: InfoWindow(
+              title: "${rank.emoji} $name",
+            ),
+        ),
         );
       }
       if (!mounted) return;
@@ -273,26 +192,56 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  void _listenToPubs() {
+    _pubSub = PubManager().getPubsStream().listen((snapshot) async {
+      if (!mounted) return;
 
+      final pubs = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return Pub(
+          id: doc.id,
+          name: data['name'] ?? '',
+          description: data['description'] ?? '',
+          latitude: (data['latitude'] ?? 0).toDouble(),
+          longitude: (data['longitude'] ?? 0).toDouble(),
+          iconPath: data['iconPath'] ?? 'assets/icons/pub.png',
+          isOpen: data['isOpen'] ?? true,
+          isMobileUnit: data['isMobileUnit'] ?? false,
+          capacity: (data['capacity'] ?? 0) is int
+              ? data['capacity']
+              : int.tryParse(data['capacity']?.toString() ?? '0') ?? 0,
+        );
+      }).toList();
 
-  void _showCheckInNotification(String pubName) async {
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'checkin_channel',
-      'Check-in',
-      channelDescription: 'Automatischer Check-in bei Kneipenbetreten',
-      importance: Importance.max,
-      priority: Priority.high,
-    );
-    const NotificationDetails platformDetails =
-    NotificationDetails(android: androidDetails);
+      // 🔥 Prüfen, ob sich etwas wirklich geändert hat
+      bool hasChanged = pubs.length != PubManager().allPubs.length ||
+          !_listEquals(
+            pubs.map((p) => p.id + p.isOpen.toString()).toList(),
+            PubManager()
+                .allPubs
+                .map((p) => p.id + p.isOpen.toString())
+                .toList(),
+          );
 
-    await _notificationsPlugin.show(
-      0,
-      'Check-in',
-      'Du bist jetzt in $pubName eingecheckt!',
-      platformDetails,
-    );
+      if (hasChanged) {
+        PubManager().allPubs
+          ..clear()
+          ..addAll(pubs);
+
+        await _loadPubMarkers(); // Marker aktualisieren
+        print("🏪 Kneipenmarker neu geladen (${pubs.length})");
+      }
+    });
   }
+
+  bool _listEquals<T>(List<T> a, List<T> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
 
   void _requestMobileUnit() async {
     // 🔍 Finde die mobile Einheit aus Firestore (über PubManager)
@@ -317,12 +266,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
     // 📡 Benachrichtigung an die mobile Einheit
     _showNotificationToMobileUnit();
+    await ActivityManager().logActivity(
+      Activity(
+        id: '',
+        guestId: SessionManager().guestId,
+        pubId: '', // optional
+        action: 'request_mobile',
+        timestampBegin: DateTime.now(),
+        latitude: _currentLocation!.latitude!,
+        longitude: _currentLocation!.longitude!,
+      ),
+    );
 
     // ✅ Benutzerfeedback
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text("Mobile Einheit wurde informiert! 🚐💨")),
     );
   }
+
 
   void _showNotificationToMobileUnit() async {
     const AndroidNotificationDetails androidDetails =
@@ -365,6 +326,13 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _initializeApp();
+
+    // 🧡 Achievement-Listener aktivieren
+    AchievementManager().onAchievementUnlocked = (achievement) {
+      if (!mounted) return;
+      _showAchievementPopup(context, achievement.id);
+    };
+
     // 👇 kleine Verzögerung, damit Build & Streams fertig sind
     Future.delayed(const Duration(seconds: 2), () {
       _initLocation();
@@ -374,13 +342,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initializeApp() async {
     await PubManager().loadPubs(); // wirklich abwarten
     await _loadPubMarkers();       // erst danach Marker setzen
+    _pubsReady =true;
     setState(() => _pubsLoaded = true);
     _listenToMobileUnitMarker();
+    _listenToPubs();
     _listenToGuestsAndActivities();
     _loadCurrentLocationIcon();
     await _initLocation();
     await _loadMobilePub();
     AchievementManager().initialize();
+    await _maybeUpdateNextPub();
   }
 
   Future<void> _loadCurrentLocationIcon() async {
@@ -419,7 +390,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _initLocation() async {
-
     final location = Location();
 
     bool serviceEnabled = await location.serviceEnabled();
@@ -442,83 +412,127 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
-      // ✅ Aktuelle Position abfragen (einmalig)
+      // ✅ Aktuelle Position initial abrufen
       final loc = await location.getLocation();
       if (loc.latitude != null && loc.longitude != null) {
         _currentLocation = loc;
-        print("📍 Erste Position: ${loc.latitude}, ${loc.longitude}");
-      }
-      GuestManager().updateGuestLocation(
-        guestId: SessionManager().guestId,
-        latitude: loc.latitude!,
-        longitude: loc.longitude!,
-      );
+        final distance = _calculateDistance(
+          loc.latitude!,
+          loc.longitude!,
+          _centerPoint.latitude,
+          _centerPoint.longitude,
+        );
 
-      // ✅ Danach: Live-Updates starten
-      _locationSubscription = location.onLocationChanged.listen((loc) {
-        if (!mounted) return;
-        _currentLocation = loc;
-        _updateCurrentLocationMarker();
-        setState(() {});
-        GuestManager().updateGuestLocation(
+        final within = distance <= _visibleRadius;
+        _isWithinAllowedArea = within;
+
+        print("📍 Erste Position: ${loc.latitude}, ${loc.longitude} → innerhalb Bereich: $_isWithinAllowedArea");
+
+        // Gäste-Standort sofort speichern
+        await GuestManager().updateGuestLocation(
           guestId: SessionManager().guestId,
           latitude: loc.latitude!,
           longitude: loc.longitude!,
         );
-        // 🔥 Achievement-Event für Standort-Updates
-        AchievementManager().notifyAction(
-          AchievementEventType.locationUpdate,
-          SessionManager().guestId, // dein aktueller Gast
+
+        // Erste Karte & Marker initialisieren
+        if (within) _updateCurrentLocationMarker();
+        _locationReady = true;     // ✅ Location ist da
+        await _maybeUpdateNextPub(); // 🔔 jetzt können wir das „Nächste Kneipe“-Panel setzen
+      }
+
+      // 🔁 Live-Standort-Stream starten
+      _locationSubscription = location.onLocationChanged.listen((loc) async {
+        if (!mounted) return;
+        if (loc.latitude == null || loc.longitude == null) return;
+
+        _currentLocation = loc;
+
+        final distance = _calculateDistance(
+          loc.latitude!,
+          loc.longitude!,
+          _centerPoint.latitude,
+          _centerPoint.longitude,
         );
+        final within = distance <= _visibleRadius;
+
+        // 👇 Nur wenn sich der Radiusstatus ändert (rein/raus)
+        if (within != _isWithinAllowedArea) {
+          _isWithinAllowedArea = within;
+          print("📍 Bereichsstatus geändert → innerhalb: $within");
+          setState(() {}); // nur Statuswechsel → minimaler rebuild
+        }
+
+        if (within) {
+          // 🔹 Marker-Update (keine komplette UI)
+          _updateCurrentLocationMarker();
+
+          // 🔹 Standort in Firestore
+          await GuestManager().updateGuestLocation(
+            guestId: SessionManager().guestId,
+            latitude: loc.latitude!,
+            longitude: loc.longitude!,
+          );
+
+          // 🔹 Achievement-Event
+          AchievementManager().notifyAction(
+            AchievementEventType.locationUpdate,
+            SessionManager().guestId,
+          );
+
+          // 🔹 Optional: nur bei größerer Bewegung "nächste Kneipe" prüfen
+          _checkForNextPubChange();
+          _checkGuestStatus();
+          Timer.periodic(const Duration(seconds: 30), (_) => _checkGuestStatus());
+
+        }
       });
     } catch (e) {
       print("⚠️ Fehler bei getLocation(): $e");
     }
   }
 
-
-
-
-  void _autoCheckIn() {
+  Future<void> _checkForNextPubChange() async {
     if (_currentLocation == null) return;
-    for (var pub in PubManager().allPubs.where((p) => p.isOpen)) {
-      double distance = _calculateDistance(
-        _currentLocation!.latitude!,
-        _currentLocation!.longitude!,
-        pub.latitude,
-        pub.longitude,
-      );
-      if (distance <= notificationDistance) {
-        _notifyNearbyPub(pub);
-      } else if (distance > (notificationDistance * 2)) {
-        _lastPubNotificationTimes.remove(pub.id);
-      }
+
+    final nextPub = await _getNextUnvisitedPub();
+    if (nextPub == null) return;
+
+    // ⚡️ Nur wenn sich etwas ändert, UI aktualisieren
+    if (_cachedNextPub == null || _cachedNextPub!.id != nextPub.id) {
+      setState(() {
+        _cachedNextPub = nextPub;
+      });
     }
   }
 
-  void _notifyNearbyPub(Pub pub) async {
-    final now = DateTime.now();
-    final last = _lastPubNotificationTimes[pub.id];
-    const cooldownMinutes = 3;
-    if (last != null && now.difference(last).inMinutes < cooldownMinutes) return;
-    _lastPubNotificationTimes[pub.id] = now;
+  Future<void> _checkGuestStatus() async {
+    final guestId = SessionManager().guestId;
+    final activeCheckIn = await ActivityManager().getCheckInActivity(guestId);
 
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'nearby_pub_channel',
-      'Kneipen in der Nähe',
-      channelDescription: 'Benachrichtigt, wenn du dich in der Nähe einer Kneipe befindest',
-      importance: Importance.max,
-      priority: Priority.high,
-    );
+    if (!mounted) return;
 
-    const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
-    await _notificationsPlugin.show(
-      pub.id.hashCode,
-      '🍻 In der Nähe: ${pub.name}',
-      'Du bist nur wenige Meter von ${pub.name} entfernt – möchtest du einchecken?',
-      platformDetails,
-      payload: pub.id,
-    );
+    if (activeCheckIn != null && activeCheckIn.pubId.isNotEmpty) {
+      final pub = PubManager().allPubs.firstWhere(
+            (p) => p.id == activeCheckIn.pubId,
+        orElse: () => Pub(
+          id: activeCheckIn.pubId,
+          name: "Unbekannte Kneipe",
+          description: "",
+          latitude: 0,
+          longitude: 0,
+          iconPath: "",
+        ),
+      );
+
+      setState(() {
+        _currentStatus = "in ${pub.name}";
+      });
+    } else {
+      setState(() {
+        _currentStatus = "unterwegs";
+      });
+    }
   }
 
   // GoogleMap Widget aktualisieren
@@ -621,33 +635,74 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     }
-    final mobilePub = _mobilePubCached;
+    if (!_isWithinAllowedArea) {
+      // Nutzer außerhalb des erlaubten Bereichs → StartScreen anzeigen
+      return const Scaffold(
+        backgroundColor: Color(0xFF121212),
+        body: Center(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.location_off, color: Colors.redAccent, size: 60),
+                SizedBox(height: 16),
+                Text(
+                  "🚫 Du bist zu weit weg vom Veranstaltungsgebiet!",
+                  style: TextStyle(color: Colors.white, fontSize: 18),
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 12),
+                Text(
+                  "Bitte kehre in den Kneipentour-Bereich zurück, um die App zu nutzen.",
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFF121212),
         elevation: 8,
         shadowColor: Colors.orangeAccent.withOpacity(0.3),
-        title: Row(
-          children: [
-            const Icon(Icons.local_bar, color: Colors.orangeAccent, size: 24),
-            const SizedBox(width: 8),
-            Text(
-              "Kneipentour",
-              style: TextStyle(
-                color: Colors.orangeAccent,
-                fontWeight: FontWeight.bold,
-                fontSize: 20,
-                shadows: [
-                  Shadow(
-                    color: Colors.orangeAccent.withOpacity(0.5),
-                    blurRadius: 10,
+        title: ValueListenableBuilder<String?>(
+          valueListenable: SessionManager().currentPubId,
+          builder: (context, currentPubId, _) {
+            final isInPub = currentPubId != null;
+
+            final statusEmoji = isInPub ? "🍻" : "🚶‍♂️";
+            final statusText = isInPub ? "in ${PubManager().getPubName(currentPubId)}" : "unterwegs";
+            final statusColor = isInPub ? Colors.greenAccent : Colors.white70;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.userName,
+                  style: const TextStyle(
+                    color: Colors.orangeAccent,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
                   ),
-                ],
-              ),
-            ),
-          ],
+                ),
+                Text(
+                  "$statusEmoji $statusText",
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            );
+          },
         ),
+
+
       ),
 
       body: _selectedIndex == 0
@@ -665,94 +720,14 @@ class _HomeScreenState extends State<HomeScreen> {
               color: const Color(0xFF121212),
               width: double.infinity,
               padding: const EdgeInsets.all(16),
-              child: FutureBuilder<Pub?>(
-                future: _getNextUnvisitedPub(),
-                builder: (context, snap) {
-                  if (snap.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  final nextPub = snap.data;
-                  if (nextPub == null) {
-                    return Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Icon(Icons.emoji_events, color: Colors.amber, size: 40),
-                        SizedBox(height: 8),
-                        Text(
-                          "Alle Kneipen besucht – Prost! 🍺",
-                          style: TextStyle(color: Colors.white70, fontSize: 16),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    );
-                  }
-
-                  final distance = _calculateDistance(
-                    _currentLocation?.latitude ?? 0,
-                    _currentLocation?.longitude ?? 0,
-                    nextPub.latitude,
-                    nextPub.longitude,
-                  ).round();
-
-                  return Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text("🧭 Nächste offene Kneipe:", style: TextStyle(color: Colors.grey[400], fontSize: 14)),
-                      const SizedBox(height: 4),
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => PubInfoScreen(
-                                pub: nextPub,
-                                guestId: SessionManager().guestId,
-                                onCheckIn: _checkInGuest,
-                                onCheckOut: _checkOutGuest,
-                                currentLocation: _currentLocation,
-                              ),
-                            ),
-                          );
-                        },
-                        child: Text(
-                          // ignore: unnecessary_string_interpolations
-                          "${nextPub.name}",
-                          style: TextStyle(
-                            color: Colors.orangeAccent,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            decoration: TextDecoration.underline,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text("$distance m entfernt", style: const TextStyle(color: Colors.white70, fontSize: 16)),
-
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.medical_services),
-                        label: Text(
-                          mobilePub == null
-                              ? "Mobile Einheit nicht verfügbar"
-                              : (mobilePub.isAvailable
-                              ? "Mobile Einheit anfordern"
-                              : "🚨 Einheit unterwegs..."),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: mobilePub == null || !mobilePub.isAvailable
-                              ? Colors.grey.shade800
-                              : Colors.orangeAccent,
-                          disabledForegroundColor: Colors.white54,
-                        ),
-                        onPressed: mobilePub == null || !mobilePub.isAvailable
-                            ? null
-                            : _requestMobileUnit,
-                      ),
-                    ],
-                  );
-                },
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: _buildNextPubSection(),
+                ),
               ),
             ),
-    ),
+          ),
     ],
     )
         : screens[_selectedIndex],
@@ -771,8 +746,6 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  final Map<String, BitmapDescriptor> _iconCache = {};
 
   Future<BitmapDescriptor> _getIcon(String path, int targetWidth, int targetHeight) async {
     final data = await rootBundle.load(path);
@@ -832,6 +805,97 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Widget _buildNextPubSection() {
+    final nextPub = _cachedNextPub;
+
+    if (nextPub == null) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: const [
+          Icon(Icons.cottage, color: Colors.amber, size: 40),
+          SizedBox(height: 8),
+        ],
+      );
+    }
+
+    final distance = _calculateDistance(
+      _currentLocation?.latitude ?? 0,
+      _currentLocation?.longitude ?? 0,
+      nextPub.latitude,
+      nextPub.longitude,
+    ).round();
+
+    final mobilePub = _mobilePubCached;
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text("🧭 Nächste noch nicht besuchte Kneipe:",
+            style: TextStyle(color: Colors.grey[400], fontSize: 14)),
+        const SizedBox(height: 4),
+        GestureDetector(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PubInfoScreen(
+                  pub: nextPub,
+                  guestId: SessionManager().guestId,
+                  onCheckIn: _checkInGuest,
+                  onCheckOut: _checkOutGuest,
+                  currentLocation: _currentLocation,
+                ),
+              ),
+            );
+          },
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // 🏷️ Icon links neben Name
+              Image.asset(
+                nextPub.iconPath.isNotEmpty ? nextPub.iconPath : 'assets/icons/default_pub.png',
+                width: 36,
+                height: 36,
+                errorBuilder: (context, error, stackTrace) => const Icon(Icons.local_bar, color: Colors.orangeAccent, size: 30),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                nextPub.name,
+                style: const TextStyle(
+                  color: Colors.orangeAccent,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  decoration: TextDecoration.underline,
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 6),
+        Text("$distance m entfernt",
+            style: const TextStyle(color: Colors.white70, fontSize: 16)),
+        const SizedBox(height: 8),
+        ElevatedButton.icon(
+          icon: const Icon(Icons.medical_services),
+          label: Text(
+            mobilePub == null
+                ? "Mobile Einheit nicht verfügbar"
+                : (mobilePub.isAvailable
+                ? "Mobile Einheit anfordern"
+                : "🚨 Einheit unterwegs..."),
+          ),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: mobilePub == null || !mobilePub.isAvailable
+                ? Colors.grey.shade800
+                : Colors.orangeAccent,
+          ),
+          onPressed:
+          mobilePub == null || !mobilePub.isAvailable ? null : _requestMobileUnit,
+        ),
+      ],
+    );
+  }
 
 
   Future<void> tryCheckIn(String guestId) async {
@@ -850,24 +914,8 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
   }
-  void _logActivity(String guestId, String pubId, String action) async {
-    final location = _currentLocation;
-    if (location != null) {
-      final activity = Activity(
-        id: '',
-        guestId: guestId,
-        pubId: pubId,
-        action: action,
-        timestampBegin: DateTime.now(),
-        latitude: location.latitude ?? 0,
-        longitude: location.longitude ?? 0,
-      );
-      await ActivityManager().logActivity(activity);
-    }
 
-  }
-
-  Future<void> _checkOutGuest(String guestId, String pubId) async {
+  Future<bool> _checkOutGuest(String guestId, String pubId) async {
     AchievementManager().notifyAction(AchievementEventType.checkOut, guestId, pubId: pubId);
 
     print("🔁 Checkout: $pubId ($guestId)");
@@ -877,19 +925,24 @@ class _HomeScreenState extends State<HomeScreen> {
     if (checkInActivity != null) {
       checkInActivity.timestampEnd = DateTime.now();
       await ActivityManager().updateActivity(checkInActivity);
+      SessionManager().currentPubId.value = null;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("✅ Erfolgreich ausgecheckt!")),
       );
+      return true;
+
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("⚠️ Kein aktiver Check-in gefunden.")),
       );
+      return false;
+
     }
   }
 
 
-  Future<void> _checkInGuest(String guestId, String pubId, {bool consumeDrink = false}) async {
+  Future<bool> _checkInGuest(String guestId, String pubId, {bool consumeDrink = false}) async {
     final pub = PubManager().allPubs.firstWhere(
           (p) => p.id == pubId,
       orElse: () => Pub(id: pubId, name: 'Kneipe', description: '', latitude: 0, longitude: 0, iconPath: ''),
@@ -900,7 +953,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("❌ Standort konnte nicht ermittelt werden.")),
       );
-      return;
+      return false;
     }
 
     // 🧭 Distanz prüfen
@@ -917,12 +970,13 @@ class _HomeScreenState extends State<HomeScreen> {
           content: Text("📍 Du bist zu weit entfernt (${distance.round()} m) – gehe näher an ${pub.name} heran."),
         ),
       );
-      return;
+      return false;
     }
 
     // ✅ Alles ok → Check-in
     // 🔁 Falls Gast noch in einer anderen Kneipe eingecheckt ist → automatisch auschecken
     final activeCheckIn = await ActivityManager().getCheckInActivity(guestId);
+    SessionManager().currentPubId.value = pubId;
     if (activeCheckIn != null && activeCheckIn.pubId != pubId) {
       print("🔁 Auto-Checkout von alter Kneipe ${activeCheckIn.pubId}");
       activeCheckIn.timestampEnd = DateTime.now();
@@ -952,6 +1006,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     setState(() {});
+    return true;
   }
 
 
@@ -980,16 +1035,6 @@ class _HomeScreenState extends State<HomeScreen> {
     const p = 0.017453292519943295;
     final a = 0.5 - cos((lat2 - lat1) * p) / 2 + cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lon2 - lon1) * p)) / 2;
     return 12742000 * asin(sqrt(a));
-  }
-
-  void _updatePubStatus(String pubId, bool newStatus) {
-    final index = PubManager().allPubs.indexWhere((p) => p.id == pubId);
-    if (index != -1) {
-      setState(() {
-        PubManager().allPubs[index].isOpen = newStatus;
-      });
-      _loadPubMarkers(); // Marker sofort neu laden
-    }
   }
 
   Future<Pub?> _getNextUnvisitedPub() async {

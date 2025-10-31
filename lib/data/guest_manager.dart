@@ -37,7 +37,7 @@ class GuestManager {
     }
   }
 
-  /// 📍 Aktualisiert Standort und Status des Gastes
+  /// 📍 Standort + Pub-Status aktualisieren
   Future<void> updateGuestLocation({
     required String guestId,
     required double latitude,
@@ -76,7 +76,7 @@ class GuestManager {
     });
   }
 
-  /// 🔹 Alle Gäste-Updates live (z. B. für Karte)
+  /// 🔹 Alle Gäste live (z. B. für Karte)
   Stream<QuerySnapshot<Map<String, dynamic>>> getGuestsStream() {
     return _guestsCollection.snapshots();
   }
@@ -88,12 +88,12 @@ class GuestManager {
   }
 
   /// 🧑 Gastnamen über ID abrufen
-  Future<String?> getGuestById(String guestId) async {
+  Future<String?> getGuestName(String guestId) async {
     try {
       final doc = await _guestsCollection.doc(guestId).get();
       if (doc.exists) {
-        final guest = Guest.fromMap(doc.data()!, doc.id);
-        return guest.name;
+        final data = doc.data();
+        return data?['name'] ?? 'Unbekannt';
       }
     } catch (e) {
       print("⚠️ Fehler beim Abrufen des Gast-Namens: $e");
@@ -101,8 +101,55 @@ class GuestManager {
     return null;
   }
 
-  Future<void> deleteGuest(String guestId) async {
-    await FirebaseFirestore.instance.collection('guests').doc(guestId).delete();
+  /// 🧩 Komplette Gast-Info holen
+  Future<Guest?> getGuest(String guestId) async {
+    try {
+      final doc = await _guestsCollection.doc(guestId).get();
+      if (!doc.exists) return null;
+      final data = doc.data()!;
+      return Guest.fromMap(data, doc.id);
+    } catch (e) {
+      print("⚠️ Fehler beim Abrufen des Gastes: $e");
+      return null;
+    }
   }
 
+  /// 🏠 Aktuelles Pub des Gastes abrufen
+  Future<String?> getCurrentPubId(String guestId) async {
+    try {
+      final doc = await _guestsCollection.doc(guestId).get();
+      if (doc.exists) {
+        final data = doc.data();
+        return data?['currentPubId'];
+      }
+    } catch (e) {
+      print("⚠️ Fehler beim Lesen von currentPubId: $e");
+    }
+    return null;
+  }
+
+  /// ✅ Prüfen, ob Gast gerade eingecheckt ist
+  Future<bool> isGuestCheckedIn(String guestId) async {
+    final pubId = await getCurrentPubId(guestId);
+    return pubId != null && pubId.isNotEmpty;
+  }
+
+  Future<void> deleteGuest(String guestId) async {
+    await _guestsCollection.doc(guestId).delete();
+  }
+
+  Future<List<Guest>> getAllGuests() async {
+    final snapshot = await _guestsCollection.get();
+    return snapshot.docs.map((doc) {
+      final data = doc.data();
+      return Guest(
+        id: data['guestId'] ?? doc.id,
+        name: data['name'] ?? 'Unbekannt',
+        latitude: (data['latitude'] ?? 0).toDouble(),
+        longitude: (data['longitude'] ?? 0).toDouble(),
+        drinks: (data['drinks'] ?? <Drink>[]),
+        lastUpdated: (data['lastUpdate'] ?? DateTime.now()),
+      );
+    }).toList();
+  }
 }

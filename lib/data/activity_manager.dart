@@ -117,6 +117,25 @@ class ActivityManager {
       await doc.reference.delete();
     }
   }
+  Future<Activity?> getOpenMobileUnitRequest() async {
+    final snap = await _db
+        .where('action', isEqualTo: 'request_mobile')
+        .where('timestampEnd', isEqualTo: null)
+        .orderBy('timestampBegin', descending: true)
+        .limit(1)
+        .get();
 
+    if (snap.docs.isNotEmpty) {
+      final doc = snap.docs.first;
+      return Activity.fromMap(doc.data(), doc.id);
+    }
+    return null;
+  }
+
+  Future<void> closeMobileUnitRequest(String activityId) async {
+    await _db
+        .doc(activityId)
+        .update({'timestampEnd': DateTime.now()});
+  }
 
 }

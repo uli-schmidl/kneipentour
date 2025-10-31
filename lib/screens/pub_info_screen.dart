@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:kneipentour/data/achievement_manager.dart';
 import 'package:kneipentour/data/activity_manager.dart';
 import 'package:flutter_paypal_payment/flutter_paypal_payment.dart';
+import 'package:kneipentour/data/rank_manager.dart';
 import 'package:kneipentour/data/session_manager.dart';
 import 'package:kneipentour/models/achievement.dart';
 import 'package:kneipentour/models/activity.dart';
@@ -13,8 +14,8 @@ class PubInfoScreen extends StatefulWidget {
   final Pub pub;
   final String guestId;
   final LocationData? currentLocation; // 👈 hinzufügen
-  final Future<void> Function(String, String, {bool consumeDrink}) onCheckIn;
-  final Future<void> Function(String, String) onCheckOut;
+  final Future<bool> Function(String, String, {bool consumeDrink}) onCheckIn;
+  final Future<bool> Function(String, String) onCheckOut;
 
   const PubInfoScreen({
     required this.pub,
@@ -35,7 +36,6 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
 
   // 🔹 neu: ValueNotifier für Cooldown
   final ValueNotifier<int> _secondsRemaining = ValueNotifier<int>(0);
-  bool _drinkCooldown = false;
   Timer? _cooldownTimer;
 
   @override
@@ -68,49 +68,21 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
   }
 
   void _handleCheckIn() async {
-    await widget.onCheckIn(widget.guestId, widget.pub.id, consumeDrink: false);
-    setState(() {
-      isCheckedIn = true;
-      currentCheckedInPubId = widget.pub.id;
-    });
+    final success = await widget.onCheckIn(widget.guestId, widget.pub.id, consumeDrink: false);
+    if (success) {
+      setState(() {
+        isCheckedIn = true;
+        currentCheckedInPubId = widget.pub.id;
+      });
+    }
   }
+
 
   void _handleCheckOut() async {
     await widget.onCheckOut(widget.guestId, widget.pub.id);
     setState(() {
       isCheckedIn = false;
       currentCheckedInPubId = '';
-    });
-  }
-
-  /// 🔹 Cooldown nur im Button über ValueNotifier steuern
-  Future<void> _consumeDrink() async {
-  AchievementManager().notifyAction(AchievementEventType.drink, SessionManager().guestId, pubId: widget.pub.id);
-
-  _drinkCooldown = true;
-    _secondsRemaining.value = 10;
-
-    await ActivityManager().logActivity(
-      Activity(
-        id: '',
-        guestId: SessionManager().guestId,
-        pubId: widget.pub.id,
-        action: 'drink',
-        timestampBegin: DateTime.now(),
-        latitude: 0,
-        longitude: 0,
-      ),
-    );
-
-    _cooldownTimer?.cancel();
-    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_secondsRemaining.value > 1) {
-        _secondsRemaining.value--;
-      } else {
-        _drinkCooldown = false;
-        _secondsRemaining.value = 0;
-        timer.cancel();
-      }
     });
   }
 
@@ -150,9 +122,17 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
             ),
             const SizedBox(height: 8),
             for (var guest in checkedInGuests)
-              ListTile(
-                leading: const Icon(Icons.person, color: Colors.white70),
-                title: Text(guest, style: const TextStyle(color: Colors.white70)),
+              FutureBuilder<int>(
+                future: ActivityManager().getDrinkCount(guest),
+                builder: (context, snapshot) {
+                  final drinks = snapshot.data ?? 0;
+                  final rank = RankManager().getRankForDrinks(drinks);
+                  return ListTile(
+                    leading: Text(rank.emoji, style: const TextStyle(fontSize: 24)),
+                    title: Text(guest,
+                        style: TextStyle(color: rank.color)),
+                  );
+                },
               ),
           ],
         );

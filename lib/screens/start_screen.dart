@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:kneipentour/config/location_config.dart';
 import 'package:kneipentour/data/session_manager.dart';
+import 'package:location/location.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/screens/home_screen.dart';
@@ -15,16 +19,104 @@ class StartScreen extends StatefulWidget {
 
 class _StartScreenState extends State<StartScreen> {
   final TextEditingController _nameController = TextEditingController();
-  String generatedName = "DurstigerDachs";
+  String generatedName = "";
   bool _loading = true;
+  Location? _location;
+  StreamSubscription<LocationData>? _locationSub;
+  bool _isWithinAllowedArea = false;
 
   @override
   void initState() {
     super.initState();
     _checkExistingUser();
+    _generateRandomName();
+  }
+
+  @override
+  void dispose() {
+    _locationSub?.cancel();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+
+  Future<void> _checkLocationRadius() async {
+    _location = Location();
+
+    bool serviceEnabled = await _location!.serviceEnabled();
+    if (!serviceEnabled) {
+      serviceEnabled = await _location!.requestService();
+      if (!serviceEnabled) {
+        print("❌ Standortdienst deaktiviert");
+        setState(() {
+          _isWithinAllowedArea = false;
+        });
+        return;
+      }
+    }
+
+    PermissionStatus permissionGranted = await _location!.hasPermission();
+    if (permissionGranted == PermissionStatus.denied) {
+      permissionGranted = await _location!.requestPermission();
+      if (permissionGranted != PermissionStatus.granted) {
+        print("❌ Keine Standortberechtigung");
+        setState(() {
+          _isWithinAllowedArea = false;
+        });
+        return;
+      }
+    }
+
+    // ✅ Einmalige Prüfung zu Beginn
+    final loc = await _location!.getLocation();
+    _evaluateLocation(loc);
+
+    // 🔁 Live-Überwachung aktivieren
+    _locationSub = _location!.onLocationChanged.listen((loc) {
+      _evaluateLocation(loc);
+    });
+  }
+
+  void _evaluateLocation(LocationData loc) {
+    if (loc.latitude == null || loc.longitude == null) return;
+
+    final distance = _calculateDistance(
+      loc.latitude!,
+      loc.longitude!,
+      LocationConfig.centerPoint.latitude,
+      LocationConfig.centerPoint.longitude,
+    );
+
+    final within = distance <= LocationConfig.allowedRadius;
+
+    if (within != _isWithinAllowedArea) {
+      print("📍 Standort geändert: ${distance.toStringAsFixed(1)} m → innerhalb: $within");
+      setState(() {
+        _isWithinAllowedArea = within;
+      });
+    }
+  }
+
+  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const p = 0.017453292519943295; // π/180
+    final a = 0.5 -
+        cos((lat2 - lat1) * p) / 2 +
+        cos(lat1 * p) * cos(lat2 * p) *
+            (1 - cos((lon2 - lon1) * p)) / 2;
+    return 12742000 * asin(sqrt(a)); // Meter
   }
 
   Future<void> _checkExistingUser() async {
+    await _checkLocationRadius();
+
+    if (!_isWithinAllowedArea) {
+      print("🚫 Außerhalb des Bereichs – Auto-Login deaktiviert");
+      setState(() {
+        _loading = false;
+      });
+      return;
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final savedName = prefs.getString('guestName');
     if (savedName != null) {
@@ -129,7 +221,7 @@ class _StartScreenState extends State<StartScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/icons/flyer.jpg', fit: BoxFit.cover),
+          Image.asset('assets/icons/startscreen.jpg', fit: BoxFit.cover),
           Container(color: Colors.black.withOpacity(0.6)),
 
           // 🔐 Admin-Login
@@ -200,17 +292,22 @@ class _StartScreenState extends State<StartScreen> {
 
                   ElevatedButton.icon(
                     icon: const Icon(Icons.local_bar),
-                    label: const Text("Tour starten"),
+                    label: Text(
+                      _isWithinAllowedArea ? "Tour starten" : "Außerhalb des Gebiets",
+                    ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.orangeAccent,
+                      backgroundColor: _isWithinAllowedArea
+                          ? Colors.orangeAccent
+                          : Colors.grey.shade800,
                       foregroundColor: Colors.black,
                       minimumSize: const Size(double.infinity, 50),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    onPressed: _startTour,
+                    onPressed: _isWithinAllowedArea ? _startTour : null,
                   ),
+
                   const SizedBox(height: 40),
                 ],
               ),

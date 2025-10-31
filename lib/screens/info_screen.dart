@@ -1,7 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:kneipentour/data/activity_manager.dart';
-import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/data/session_manager.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:kneipentour/screens/login_screen.dart';

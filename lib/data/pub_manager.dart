@@ -132,4 +132,13 @@ class PubManager {
     );
   }
 
+  String getPubName(String pubId) {
+    try {
+      return allPubs.firstWhere((p) => p.id == pubId).name;
+    } catch (_) {
+      return "unbekannte Kneipe";
+    }
+  }
+
+
 }

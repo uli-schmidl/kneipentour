@@ -21,7 +21,7 @@ class _AchievementScreenState extends State<AchievementScreen> {
     final visibleAchievements = achievements
         .where((a) => !a.hidden || (a.hidden && a.unlocked))
         .toList();
-    final activeChallenges = challengeManager.active;
+    final activeChallenges = challengeManager.activeChallenges;
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
@@ -99,29 +99,39 @@ class _AchievementScreenState extends State<AchievementScreen> {
   }
 
   Widget _buildChallengeCard(Challenge c) {
+    final remaining = c.remaining;
+    final mins = remaining.inMinutes;
+    final secs = remaining.inSeconds % 60;
+
     return Card(
-      color: const Color(0xFF1E1E1E),
-      child: ListTile(
-        title: Text(
-          c.title,
-          style: const TextStyle(color: Colors.orangeAccent),
-        ),
-        subtitle: Column(
+      color: Colors.black87,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: const BorderSide(color: Colors.orangeAccent),
+      ),
+      margin: const EdgeInsets.symmetric(vertical: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(c.description, style: const TextStyle(color: Colors.white70)),
-            const SizedBox(height: 6),
-            LinearProgressIndicator(
-              value: c.progressPercent,
-              color: c.isCompleted ? Colors.greenAccent : Colors.orangeAccent,
-              backgroundColor: Colors.grey[800],
-            ),
-            const SizedBox(height: 4),
             Text(
-              c.isCompleted
-                  ? "✅ Abgeschlossen!"
-                  : "Noch ${c.remainingTime.inMinutes} Minuten",
-              style: const TextStyle(color: Colors.white60, fontSize: 12),
+              c.title,
+              style: const TextStyle(
+                color: Colors.orangeAccent,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              c.description,
+              style: const TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "⏱ verbleibend: ${mins}m ${secs}s",
+              style: const TextStyle(color: Colors.white38),
             ),
           ],
         ),

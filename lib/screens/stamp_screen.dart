@@ -5,8 +5,8 @@ import 'package:location/location.dart';
 import '../data/pub_manager.dart';
 import 'pub_info_screen.dart';
 
-typedef CheckInCallback = Future<void> Function(String guestId, String pubId, {bool consumeDrink});
-typedef CheckOutCallback = Future<void> Function(String guestId, String pubId);
+typedef CheckInCallback = Future<bool> Function(String guestId, String pubId, {bool consumeDrink});
+typedef CheckOutCallback = Future<bool> Function(String guestId, String pubId);
 
 
 class StampScreen extends StatefulWidget {
@@ -63,7 +63,6 @@ class _StampScreenState extends State<StampScreen> {
           final drinks = activities.where((a) => a.action == 'drink').toList();
 
           // Gesamtstatistik
-          final totalVisitedPubs = checkIns.map((a) => a.pubId).toSet().length;
           final totalDrinks = drinks.length;
           final maxDrinks = pubs.length * 2;
           final bonusDrinks =

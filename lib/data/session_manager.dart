@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SessionManager {
@@ -16,6 +17,9 @@ class SessionManager {
 
   bool get hasGuest => _guestId != null;
   bool get isInitialized => _userName != null;
+
+  final ValueNotifier<String?> currentPubId = ValueNotifier<String?>(null);
+
 
   // ==== Setter / Initialisierung ====
   void initUser({required String id, required String name}) {

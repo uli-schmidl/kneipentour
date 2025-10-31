@@ -1,119 +1,182 @@
 import 'package:flutter/material.dart';
 import 'package:kneipentour/data/activity_manager.dart';
+import 'package:kneipentour/data/rank_manager.dart';
 import 'package:kneipentour/data/guest_manager.dart';
-import 'package:kneipentour/models/activity.dart';
+import 'package:kneipentour/data/session_manager.dart';
 
-class RankingScreen extends StatelessWidget {
+class RankingScreen extends StatefulWidget {
   const RankingScreen({super.key});
 
+  @override
+  State<RankingScreen> createState() => _RankingScreenState();
+}
+
+class _RankingScreenState extends State<RankingScreen> {
+  late Future<List<_GuestRankEntry>> _rankingFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _rankingFuture = _loadRankingSnapshot();
+  }
+
+  Future<List<_GuestRankEntry>> _loadRankingSnapshot() async {
+    print("🚀 Starte Ranking-Ladevorgang...");
+    List<_GuestRankEntry> entries = [];
+
+    try {
+      final guests = await GuestManager().getAllGuests();
+      print("👥 Gäste geladen: ${guests.length}");
+
+      if (guests.isEmpty) {
+        print("⚠️ Keine Gäste gefunden");
+        return [];
+      }
+
+      // Testweise nur die ersten 5 Gäste abrufen
+      final limitedGuests = guests.take(5).toList();
+
+      final futures = limitedGuests.map((guest) async {
+        print("🔍 Prüfe Gast: ${guest.name}");
+
+        try {
+          final drinks = await ActivityManager()
+              .getGuestActivities(guest.id, action: 'drink')
+              .timeout(const Duration(seconds: 3), onTimeout: () {
+            print("⏰ Timeout bei ${guest.name}");
+            return [];
+          });
+
+          final count = drinks.length;
+          print("🍺 ${guest.name} → $count Drinks");
+          final rank = RankManager().getRankForDrinks(count);
+
+          return _GuestRankEntry(
+            guestName: guest.name,
+            drinkCount: count,
+            rank: rank,
+          );
+        } catch (e) {
+          print("⚠️ Fehler bei ${guest.name}: $e");
+          return _GuestRankEntry(
+            guestName: guest.name,
+            drinkCount: 0,
+            rank: RankManager().getRankForDrinks(0),
+          );
+        }
+      }).toList();
+
+      entries = await Future.wait(futures);
+      print("✅ Alle Gäste verarbeitet (${entries.length})");
+
+      entries.sort((a, b) => b.drinkCount.compareTo(a.drinkCount));
+    } catch (e, st) {
+      print("💥 Ranking-Fehler: $e\n$st");
+    }
+
+    return entries;
+  }
+
+
+
+  /*Future<List<_GuestRankEntry>> _loadRankingSnapshot() async {
+    final guests = await GuestManager().getAllGuests();
+
+    // Wenn keine Gäste vorhanden sind
+    if (guests.isEmpty) return [];
+
+    // 🔹 Parallele Abfragen (statt nacheinander!)
+    final futures = guests.map((guest) async {
+      try {
+        // Hole alle 'drink'-Einträge parallel
+        final drinks = await ActivityManager()
+            .getGuestActivities(guest.id, action: 'drink')
+            .timeout(const Duration(seconds: 5), onTimeout: () => []);
+
+        final count = drinks.length;
+        final rank = RankManager().getRankForDrinks(count);
+
+        return _GuestRankEntry(
+          guestName: guest.name,
+          drinkCount: count,
+          rank: rank,
+        );
+      } catch (e) {
+        print("⚠️ Fehler bei ${guest.name}: $e");
+        return _GuestRankEntry(
+          guestName: guest.name,
+          drinkCount: 0,
+          rank: RankManager().getRankForDrinks(0),
+        );
+      }
+    }).toList();
+
+    // 🔹 Warte auf alle Futures gleichzeitig
+    final entries = await Future.wait(futures);
+
+    // 🔹 Sortieren nach Anzahl der Drinks
+    entries.sort((a, b) => b.drinkCount.compareTo(a.drinkCount));
+
+    return entries;
+  }*/
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF121212),
-        title: const Text(
-          '🏆 Top 10 Gäste',
-          style: TextStyle(color: Colors.orangeAccent),
-        ),
-        centerTitle: true,
-        elevation: 4,
+        title: const Text("🏆 Rangliste", style: TextStyle(color: Colors.orangeAccent)),
+        backgroundColor: Colors.black,
+        iconTheme: const IconThemeData(color: Colors.orangeAccent),
       ),
-      body: StreamBuilder<List<Activity>>(
-        stream: ActivityManager().streamAllActivities(),
-        // 🔥 holt ALLE Aktivitäten
+      body: FutureBuilder<List<_GuestRankEntry>>(
+        future: _rankingFuture,
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final activities = snapshot.data!;
-
-          // 🔍 Gruppiere Aktivitäten nach Gast
-          final Map<String, _GuestStats> guestStats = {};
-
-          for (var a in activities) {
-            final stats = guestStats.putIfAbsent(
-                a.guestId, () => _GuestStats(a.guestId));
-            if (a.action == 'drink') stats.totalDrinks++;
-            if (a.action == 'check-in') stats.visitedPubs.add(a.pubId);
-          }
-
-          // 🔢 Sortiere nach Getränken, dann nach Kneipen
-          final ranking = guestStats.entries.toList()
-            ..sort((a, b) {
-              if (a.value.totalDrinks != b.value.totalDrinks) {
-                return b.value.totalDrinks.compareTo(a.value.totalDrinks);
-              }
-              return b.value.visitedPubs.length.compareTo(
-                  a.value.visitedPubs.length);
-            });
-
-          if (ranking.isEmpty) {
             return const Center(
-              child: Text(
-                "Noch keine Aktivitäten 🍺",
-                style: TextStyle(color: Colors.white70),
-              ),
+              child: CircularProgressIndicator(color: Colors.orangeAccent),
             );
           }
 
-          // 🏅 Top 10 anzeigen
-          final top10 = ranking.take(10).toList();
+          final ranking = snapshot.data!;
+          if (ranking.isEmpty) {
+            return const Center(
+              child: Text("Noch keine Teilnehmer 🍺", style: TextStyle(color: Colors.white70)),
+            );
+          }
 
           return ListView.builder(
-            itemCount: top10.length,
+            padding: const EdgeInsets.all(16),
+            itemCount: ranking.length,
             itemBuilder: (context, index) {
-              final entry = top10[index];
-              final rank = index + 1;
-              final stats = entry.value;
+              final entry = ranking[index];
+              final isCurrentUser = entry.guestName == SessionManager().guestId;
 
-              return Card(
-                color: const Color(0xFF1E1E1E),
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: FutureBuilder<String?>(
-                  future: GuestManager().getGuestById(stats.name),
-                  builder: (context, guestSnapshot) {
-                    final guestName = guestSnapshot.data ?? "Unbekannter Gast";
-
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: rank == 1
-                            ? Colors.amber
-                            : rank == 2
-                            ? Colors.grey
-                            : rank == 3
-                            ? Colors.brown
-                            : Colors.orangeAccent,
-                        child: Text(
-                          '$rank',
-                          style: const TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      title: guestSnapshot.connectionState ==
-                          ConnectionState.waiting
-                          ? const Text(
-                        "Lade...",
-                        style: TextStyle(color: Colors.white70),
-                      )
-                          : Text(
-                        guestName,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      subtitle: Text(
-                        '🍺 ${stats.totalDrinks} Getränke – 🏠 ${stats.visitedPubs
-                            .length} Kneipen',
-                        style: const TextStyle(color: Colors.white70),
-                      ),
-                    );
-                  },
+              return Container(
+                margin: const EdgeInsets.symmetric(vertical: 6),
+                decoration: BoxDecoration(
+                  color: isCurrentUser ? Colors.orangeAccent.withOpacity(0.15) : Colors.white10,
+                  borderRadius: BorderRadius.circular(12),
+                  border: isCurrentUser
+                      ? Border.all(color: Colors.orangeAccent, width: 1)
+                      : null,
+                ),
+                child: ListTile(
+                  leading: Text(
+                    entry.rank.emoji,
+                    style: const TextStyle(fontSize: 24),
+                  ),
+                  title: Text(
+                    "${index + 1}. ${entry.guestName}",
+                    style: TextStyle(
+                      color: entry.rank.color,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: Text(
+                    "${entry.rank.title} – ${entry.drinkCount} Getränke",
+                    style: const TextStyle(color: Colors.white70),
+                  ),
                 ),
               );
             },
@@ -124,10 +187,15 @@ class RankingScreen extends StatelessWidget {
   }
 }
 
-class _GuestStats {
-  final String name;
-  int totalDrinks = 0;
-  Set<String> visitedPubs = {};
+/// interne Hilfsklasse für Ranking-Einträge
+class _GuestRankEntry {
+  final String guestName;
+  final int drinkCount;
+  final RankInfo rank;
 
-  _GuestStats(this.name);
+  _GuestRankEntry({
+    required this.guestName,
+    required this.drinkCount,
+    required this.rank,
+  });
 }

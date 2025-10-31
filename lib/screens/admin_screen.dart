@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:kneipentour/data/challenge_manager.dart';
 import 'package:kneipentour/data/session_manager.dart';
+import 'package:kneipentour/models/challenge.dart';
 import 'package:kneipentour/models/user.dart';
 import 'package:kneipentour/screens/start_screen.dart';
 import '../models/pub.dart';
@@ -259,6 +261,64 @@ class _AdminScreenState extends State<AdminScreen> {
             },
           ),
 
+          const SizedBox(height: 24),
+          Divider(),
+          const SizedBox(height: 16),
+
+          Text(
+            "Challenges",
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 12),
+
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('challenges').snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final docs = snapshot.data!.docs;
+              if (docs.isEmpty) {
+                return const Text("Noch keine Challenges vorhanden.");
+              }
+
+              final challenges = docs.map((doc) =>
+                  Challenge.fromMap(doc.data() as Map<String, dynamic>, doc.id)).toList();
+
+              return Column(
+                children: challenges.map((challenge) {
+                  return Card(
+                    child: ListTile(
+                      leading: Image.asset(
+                        challenge.iconPath,
+                        width: 40,
+                        height: 40,
+                      ),
+                      title: Text(challenge.title),
+                      subtitle: Text(
+                        challenge.isActive
+                            ? "Aktiv – endet in ${challenge.remaining.inMinutes} min"
+                            : "Inaktiv",
+                      ),
+                      trailing: Switch(
+                        value: challenge.isActive,
+                        onChanged: (val) async {
+                          await ChallengeManager().toggleChallenge(
+                            challenge.id,
+                            val,
+                            durationMinutes: challenge.durationMinutes,
+                          );
+                          setState(() {}); // optional, UI-Refresh
+                        },
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+
           const SizedBox(height: 12),
           ElevatedButton.icon(
             icon: const Icon(Icons.person_add),
@@ -270,34 +330,6 @@ class _AdminScreenState extends State<AdminScreen> {
             onPressed: _addUserDialog,
           ),
           const SizedBox(height: 12),
-
-          ElevatedButton.icon(
-            icon: const Icon(Icons.chat),
-            label: const Text("Wirt-Chat öffnen"),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Chat wird bald aktiviert 💬")),
-              );
-            },
-          ),
-          const SizedBox(height: 8),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.image),
-            label: const Text("Werbebanner verwalten"),
-            onPressed: () {},
-          ),
-          const SizedBox(height: 8),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.camera_alt),
-            label: const Text("Foto-Termin ändern"),
-            onPressed: () {},
-          ),
-          const SizedBox(height: 8),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.help_outline),
-            label: const Text("Hilfsanfragen anzeigen"),
-            onPressed: () {},
-          ),
         ],
       ),
     );

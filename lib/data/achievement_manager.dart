@@ -15,6 +15,9 @@ class AchievementManager {
   /// Optionaler Callback, wenn ein Achievement freigeschaltet wird (z. B. Popup)
   void Function(Achievement achievement)? onAchievementUnlocked;
 
+  /// 🔹 Liste, um doppelte Popups zu vermeiden
+  final Set<String> _unlockedAchievementIds = {};
+
   bool _initialized = false;
 
   /// Initialisierung (z. B. in HomeScreen.initState aufrufen)
@@ -67,16 +70,24 @@ class AchievementManager {
 
   /// Markiert ein Achievement als freigeschaltet, speichert und löst ggf. UI-Callback aus.
   Future<void> _unlockAchievement(Achievement a, String guestId) async {
-    if (a.unlocked) return;
+    // 🔸 Prüfen, ob bereits freigeschaltet wurde
+    if (a.unlocked || _unlockedAchievementIds.contains(a.id)) return;
 
     a.unlocked = true;
+    _unlockedAchievementIds.add(a.id);
+
     print("🏆 Achievement freigeschaltet: ${a.title}");
 
     // 💾 Optional: in Firestore speichern
     // await FirebaseFirestore.instance.collection('achievements').add({...});
 
     // 🔔 Popup- oder UI-Callback triggern
-    onAchievementUnlocked?.call(a);
+    if (onAchievementUnlocked != null) {
+      print("🚀 onAchievementUnlocked Callback ausgelöst für '${a.id}'");
+      onAchievementUnlocked!(a);
+    } else {
+      print("⚠️ Kein Achievement-Callback registriert (Popup wird nicht gezeigt)");
+    }
   }
 }
 

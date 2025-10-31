@@ -191,7 +191,29 @@ class AchievementData {
         final now = DateTime.now();
 
         // Nur prüfen, wenn es nach 2 Uhr ist
-        if (now.hour < 2 && now.hour>12) return false;
+        if (now.hour < 2 && now.hour>8) return false;
+
+        // Finde offene Check-ins (kein timestampEnd gesetzt)
+        final openCheckIns = acts.where((a) => a.timestampEnd == null);
+
+        // Erfolg, wenn mind. ein offener Check-in existiert
+        return openCheckIns.isNotEmpty;
+      },
+    ),
+    Achievement(
+      id: 'wicken',
+      title: 'In die Wicken',
+      description: 'Du warst weitab von allen Kneipen.',
+      iconPath: 'assets/icons/achievements/hock.png',
+      hidden: true,
+      trigger: AchievementEventType.locationUpdate,
+      condition: (guestId) async {
+        final acts = await ActivityManager().getGuestActivities(guestId, action: 'check-in');
+
+        final now = DateTime.now();
+
+        // Nur prüfen, wenn es nach 2 Uhr ist
+        if (now.hour < 2 && now.hour>8) return false;
 
         // Finde offene Check-ins (kein timestampEnd gesetzt)
         final openCheckIns = acts.where((a) => a.timestampEnd == null);

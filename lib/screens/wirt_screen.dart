@@ -2,12 +2,9 @@ import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:kneipentour/data/activity_manager.dart';
-import 'package:kneipentour/data/pub_manager.dart';
 import 'package:kneipentour/models/user.dart';
 import 'package:kneipentour/screens/start_screen.dart';
 import '../models/pub.dart';
-import '../models/checkin.dart';
 
 class WirtScreen extends StatefulWidget {
   final UserAccount user;
@@ -230,7 +227,7 @@ class _WirtScreenState extends State<WirtScreen> {
                       Switch(
                         value: isOpen,
                         onChanged: (_) => _toggleOpenStatus(),
-                        activeColor: Colors.greenAccent,
+                        activeThumbColor: Colors.greenAccent,
                         inactiveThumbColor: Colors.redAccent,
                       ),
                     ],
@@ -253,7 +250,7 @@ class _WirtScreenState extends State<WirtScreen> {
                         Switch(
                           value: isAvailable,
                           onChanged: (_) => _toggleAvailability(),
-                          activeColor: Colors.greenAccent,
+                          activeThumbColor: Colors.greenAccent,
                           inactiveThumbColor: Colors.redAccent,
                         ),
                       ],
@@ -351,7 +348,7 @@ class _WirtScreenState extends State<WirtScreen> {
 
         return Column(
           children: docs.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
+            final data = doc.data();
             return ListTile(
               leading: const Icon(Icons.person, color: Colors.orangeAccent),
               title: Text(data['guestId'] ?? "Unbekannt",
