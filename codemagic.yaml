@@ -11,12 +11,11 @@ workflows:
         PACKAGE_NAME: "de.seitendorf.kneipentour"
 
     scripts:
-      - name: Generate iOS platform with plugin support
+      - name: Recreate iOS platform (this is the fix!)
         script: |
-          rm -rf ios
-          rm -rf .ios
           flutter clean
           flutter pub get
+          rm -rf ios .ios
           flutter create --platforms=ios .
 
       - name: Install CocoaPods
@@ -26,9 +25,8 @@ workflows:
           pod install --repo-update
           cd ..
 
-      - name: Build iOS (unsigned)
+      - name: Build iOS (no signing)
         script: flutter build ios --debug --no-codesign
-
 
       - name: 🔥 Build Android APK
         script: flutter build apk --release
