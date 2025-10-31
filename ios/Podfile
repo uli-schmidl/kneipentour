@@ -4,13 +4,15 @@ use_frameworks!
 use_modular_headers!
 
 flutter_application_path = File.expand_path('..', __dir__)
-require File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb')
+load File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb')
 
 target 'Runner' do
-  flutter_ios_podfile_setup
-  flutter_install_all_ios_pods(flutter_application_path)
+  # Install ALL plugins (Firestore, audioplayers, qr_code_scanner, etc.)
+  flutter_install_all_plugins(flutter_application_path)
 end
 
 post_install do |installer|
-  flutter_additional_ios_build_settings(installer)
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+  end
 end
