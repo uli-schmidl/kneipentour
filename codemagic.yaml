@@ -24,18 +24,16 @@ workflows:
         script: |
           flutter pub get
 
-      - name: Create iOS support folder (.ios)
+      - name: Precache iOS artifacts
         script: |
-          rm -rf .ios
-          flutter build ios --debug --no-codesign
-
-      - name: Re-Install Pods Cleanly
+          flutter precache --ios
+      - name: Clean Pods
         script: |
           cd ios
-          rm -rf Pods Podfile.lock .symlinks
-          pod repo update
-          pod install
+          rm -rf Pods Podfile.lock .symlinks .flutter
+          flutter precache --ios
           cd ..
+      
 
       - name: Build iOS
         script: flutter build ios --debug --no-codesign
