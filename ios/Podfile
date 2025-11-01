@@ -1,8 +1,7 @@
 platform :ios, '15.0'
 
-# Prevent Cocoapods from accessing Flutter's internals in wrong location
 flutter_application_path = File.expand_path('..', File.dirname(__FILE__))
-require File.join(flutter_application_path, 'flutter', 'podhelper.rb')
+load File.join(flutter_application_path, 'ios', 'Flutter', 'podhelper.rb')
 
 target 'Runner' do
   flutter_ios_podfile_setup
