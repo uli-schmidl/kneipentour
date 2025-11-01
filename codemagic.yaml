@@ -1,72 +1,88 @@
 workflows:
-  kneipentour_build:
-    name: Kneipentour iOS & Android Build
+  ios_debug_ipa:
+    name: iOS Debug IPA (no codesign)
     instance_type: mac_mini_m2
     max_build_duration: 60
-
     environment:
       flutter: "stable"
       xcode: latest
-      vars:
-        PACKAGE_NAME: "de.seitendorf.kneipentour"
-
     scripts:
-      - name: show project tree
+      - name: Show versions
         script: |
-          echo "==== PROJECT ROOT ===="
-          ls -al
-          echo "==== iOS FOLDER ===="
-          ls -al ios || true
-          echo "==== .IOS FOLDER ===="
-          ls -al .ios || true
+          flutter --version
+          dart --version
+          ruby --version
+          pod --version || true
 
-      - name: Flutter Pub Get
+      - name: Get pub dependencies
+        script: flutter pub get
+
+      - name: Ensure iOS platform folder exists
         script: |
-          flutter pub get
+          # Falls ios/ fehlt (altes Projekt) → erzeugen
+          if [ ! -d "ios" ]; then
+            flutter create --platforms=ios .
+          fi
 
-      - name: Precache iOS artifacts
+      - name: Precache iOS artifacts and generate .ios (podhelper)
         script: |
           flutter precache --ios
-      - name: Clean Pods
+          # Ein erster Build erzeugt .ios/Flutter/podhelper.rb zuverlässig
+          flutter build ios --debug --no-codesign || true
+
+      - name: Write a clean Podfile (iOS 15 + correct podhelper path)
+        script: |
+          cat > ios/Podfile <<'PODFILE'
+          platform :ios, '15.0'
+
+          flutter_application_path = File.expand_path('..', __dir__)
+          require File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb')
+
+          target 'Runner' do
+            flutter_ios_podfile_setup
+            use_frameworks!
+            use_modular_headers!
+            flutter_install_all_ios_pods(flutter_application_path)
+          end
+
+          post_install do |installer|
+            flutter_post_install(installer)
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+                config.build_settings['ENABLE_BITCODE'] = 'NO'
+              end
+            end
+          end
+          PODFILE
+
+      - name: Bump iOS deployment target inside Xcode project too
+        script: |
+          # Setze iOS 15 auch im Xcode-Projekt (zusätzlich zum Podfile)
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]\+;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' ios/Runner.xcodeproj/project.pbxproj || true
+          # Und im AppFramework (falls vorhanden)
+          /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 15.0" ios/Flutter/AppFrameworkInfo.plist 2>/dev/null || true
+
+      - name: Clean & install CocoaPods
         script: |
           cd ios
-          rm -rf Pods Podfile.lock .symlinks .flutter
-          flutter precache --ios
+          pod deintegrate || true
+          rm -rf Pods Podfile.lock .symlinks
+          pod repo update
+          pod install --verbose
           cd ..
-      
 
-      - name: Build iOS
-        script: flutter build ios --debug --no-codesign
-
-      - name: 🔥 Build Android APK
-        script: flutter build apk --release
+      - name: Build unsigned IPA (Debug)
+        script: |
+          # Baut eine unsignierte IPA, die wir als Artefakt bekommen
+          flutter build ipa --debug --no-codesign
 
     artifacts:
-      - build/app/outputs/flutter-apk/app-release.apk
       - build/ios/ipa/*.ipa
+      - build/ios/archive/*.xcarchive
+      - build/ios/**/*.log
 
     publishing:
       email:
         recipients:
           - uli-schmidl@web.de
-
-  android_release:
-    name: Android Release Build
-    instance_type: linux_x2
-    environment:
-      vars:
-        CM_KEYSTORE_PASSWORD: "test1234"
-        CM_KEY_ALIAS: "mykey"
-        CM_KEY_PASSWORD: "dein_key_passwort"
-        CM_KEYSTORE_PATH: "my-release-key.jks"
-    scripts:
-      - name: 🔑 Build signed Android release
-        script: |
-          ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=$KEYSTORE_PATH \
-            -Pandroid.injected.signing.store.password=$KEYSTORE_PASSWORD \
-            -Pandroid.injected.signing.key.alias=$KEY_ALIAS \
-            -Pandroid.injected.signing.key.password=$KEY_PASSWORD
-    artifacts:
-      - android/app/build/outputs/**/*.apk
-      - android/app/build/outputs/**/*.aab
