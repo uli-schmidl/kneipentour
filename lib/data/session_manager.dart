@@ -1,5 +1,12 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:kneipentour/data/achievement_manager.dart';
+import 'package:kneipentour/data/challenge_manager.dart';
+import 'package:kneipentour/models/achievement.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart';
+
 
 class SessionManager {
   static final SessionManager _instance = SessionManager._internal();
@@ -19,6 +26,9 @@ class SessionManager {
   bool get isInitialized => _userName != null;
 
   final ValueNotifier<String?> currentPubId = ValueNotifier<String?>(null);
+  // Globale Standort-Info (wird laufend aktualisiert)
+  ValueNotifier<Position?> lastKnownLocation = ValueNotifier(null);
+
 
 
   // ==== Setter / Initialisierung ====
@@ -59,4 +69,28 @@ class SessionManager {
     // await prefs.clear();
   }
 
-}
+  Future<void> startLocationUpdates() async {
+      final permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) return;
+
+      Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10, // alle 10m
+        ),
+      ).listen((pos) {
+        print("Location changed! $pos");
+        lastKnownLocation.value = pos;
+        if(_guestId==null || guestId.isEmpty) return;
+        AchievementManager().notifyAction(
+          AchievementEventType.locationUpdate,
+          _guestId!,
+        );
+
+// 🎯 Challenges prüfen
+        ChallengeManager().evaluateProgress(_guestId!);
+      });
+    }
+
+  }

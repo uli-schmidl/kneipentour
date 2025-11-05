@@ -1,5 +1,17 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/services.dart';
+import 'package:kneipentour/config/location_config.dart';
+import 'package:kneipentour/data/achievement_manager.dart';
+import 'package:kneipentour/data/challenge_manager.dart';
+import 'package:kneipentour/data/pub_manager.dart';
+import 'package:kneipentour/data/session_manager.dart';
+import 'package:kneipentour/models/achievement.dart';
+import 'package:kneipentour/models/pub.dart';
 import '../models/activity.dart';
+import 'dart:convert';
+import 'package:googleapis_auth/auth_io.dart' as auth;
+
+
 
 class ActivityManager {
   static final ActivityManager _instance = ActivityManager._internal();
@@ -87,7 +99,7 @@ class ActivityManager {
         .collection('activities')
         .where('guestId', isEqualTo: guestId)
         .where('action', isEqualTo: 'check-in')
-        .where('timestampEnd', isEqualTo: null);
+        .where('timestampEnd', isNull: true);
 
     // ✅ Wenn pubId angegeben ist → zusätzlich danach filtern
     if (pubId != null) {
@@ -120,7 +132,7 @@ class ActivityManager {
   Future<Activity?> getOpenMobileUnitRequest() async {
     final snap = await _db
         .where('action', isEqualTo: 'request_mobile')
-        .where('timestampEnd', isEqualTo: null)
+        .where('timestampEnd', isNull: null)
         .orderBy('timestampBegin', descending: true)
         .limit(1)
         .get();
@@ -132,10 +144,283 @@ class ActivityManager {
     return null;
   }
 
+  /// Stream für aktive Mobile-Unit-Anfrage
+  Stream<Activity?> streamOpenMobileUnitRequest() {
+    return FirebaseFirestore.instance
+        .collection('activities')
+        .where('action', isEqualTo: 'request_mobile')
+        .where('timestampEnd', isNull: null)
+        .snapshots()
+        .map((snapshot) {
+      if (snapshot.docs.isEmpty) return null;
+      final doc = snapshot.docs.first;
+      return Activity.fromMap(doc.data(), doc.id);
+    });
+  }
+
+
   Future<void> closeMobileUnitRequest(String activityId) async {
     await _db
         .doc(activityId)
         .update({'timestampEnd': DateTime.now()});
   }
 
-}
+
+
+
+  Future<void> sendPushToMobileUnit({
+    required String guestName,
+  }) async {
+    // 1. Token laden
+    final doc = await FirebaseFirestore.instance
+        .collection('mobile_unit')
+        .doc('status')
+        .get();
+
+    final token = doc.data()?['fcmToken'];
+    if (token == null) {
+      print("⚠️ Kein Mobile-Unit-Token gespeichert -> Keine Push möglich");
+      return;
+    }
+    if (token == null || token.trim().isEmpty) {
+      print("❌ Kein gültiger FCM Token vorhanden → Push wird übersprungen");
+      return;
+    }
+    _sendPushMessage(token: token,title:"🚨 Mobile Einheit benötigt!",body:"$guestName braucht Unterstützung!");
+
+  }
+
+  Future<void> sendPushToGuest({
+    required String guestId,
+    required String title,
+    required String message,
+  }) async {
+    final snap = await FirebaseFirestore.instance.collection('guests').doc(guestId).get();
+    final token = snap.data()?['fcmToken'];
+
+    if (token == null) {
+      print("⚠️ Gast $guestId hat keinen Token → keine Push");
+      return;
+    }
+
+    await _sendPushMessage(
+      token: token,
+      title: title,
+      body: message,
+    );
+  }
+
+  Future<void> _sendPushMessage({
+    required String token, required String title, required String body
+  }) async {
+    // 1. Token laden
+
+    // Service Account laden
+    final serviceAccount = jsonDecode(
+      await rootBundle.loadString('assets/service-account.json'),
+    );
+
+    final accountCredentials =
+    auth.ServiceAccountCredentials.fromJson(serviceAccount);
+
+    final client = await auth.clientViaServiceAccount(
+      accountCredentials,
+      ['https://www.googleapis.com/auth/firebase.messaging'],
+    );
+
+    final projectId = serviceAccount["project_id"];
+
+    final url = Uri.parse(
+      "https://fcm.googleapis.com/v1/projects/$projectId/messages:send",
+    );
+
+    final payload = {
+      "message": {
+        "token": token,
+        "data": {
+          "type": "push",
+          "guestName": SessionManager().guestId,
+        },
+        // 👉 Sobald Icon gefixt → diesen Block wieder aktivieren:
+
+      "notification": {
+        "title": title,
+        "body": body
+      }
+      }
+    };
+
+    final response = await client.post(
+      url,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(payload),
+    );
+
+    print("📡 Push Antwort ${response.statusCode}: ${response.body}");
+
+    client.close();
+  }
+
+  Future<void> broadcastPush({
+    required String title,
+    required String message,
+  }) async {
+    final snap = await FirebaseFirestore.instance.collection('guests').get();
+
+    for (var doc in snap.docs) {
+      final token = doc.data()['fcmToken'];
+      if (token != null) {
+        await _sendPushMessage(
+          token: token,
+          title: title,
+          body: message,
+        );
+      }
+    }
+  }
+  Future<int> getActiveCheckInsForPub(String pubId) async {
+    final snap = await FirebaseFirestore.instance
+        .collection('activities')
+        .where('pubId', isEqualTo: pubId)
+        .where('action', isEqualTo: 'check-in')
+        .where('timestampEnd', isNull: true)
+        .get();
+    return snap.docs.length;
+  }
+
+
+
+ }
+
+ extension ActivityCheckIn on ActivityManager {
+
+  /// Führt Check-In OR Drink aus
+  Future<bool> checkInGuest({
+    required String guestId,
+    required String pubId,
+    required double latitude,
+    required double longitude,
+    bool consumeDrink = false,
+  }) async {
+    final pub = PubManager().allPubs.firstWhere(
+          (p) => p.id == pubId,
+      orElse: () => Pub(
+        id: pubId,
+        name: 'Kneipe',
+        description: '',
+        latitude: 0,
+        longitude: 0,
+        iconPath: '',
+      ),
+    );
+
+    // 🧭 Distanz prüfen
+    final distance = LocationConfig.calculateDistance(
+      latitude,
+      longitude,
+      pub.latitude,
+      pub.longitude,
+    );
+
+    if (distance > 40) {
+      print("❌ Check-In abgelehnt – zu weit entfernt (${distance.round()} m)");
+      return false;
+    }
+
+    // 🔄 Falls noch in anderer Kneipe eingecheckt → Auto-Checkout
+    final activeCheckIn = await getCheckInActivity(guestId);
+    if (activeCheckIn != null && activeCheckIn.pubId != pubId) {
+      print("🔁 Auto-Checkout von ${activeCheckIn.pubId}");
+      activeCheckIn.timestampEnd = DateTime.now();
+      await updateActivity(activeCheckIn);
+
+      AchievementManager().notifyAction(
+        AchievementEventType.checkOut,
+        guestId,
+        pubId: activeCheckIn.pubId,
+      );
+
+      await ChallengeManager().evaluateProgress(guestId);
+    }
+
+    // ✅ Check-In / Drink Activity erzeugen
+    final now = DateTime.now();
+    final action = consumeDrink ? 'drink' : 'check-in';
+
+    await logActivity(
+      Activity(
+        id: '',
+        guestId: guestId,
+        pubId: pubId,
+        action: action,
+        timestampBegin: now,
+        latitude: latitude,
+        longitude: longitude,
+      ),
+    );
+
+    // 🔔 Notify Achievements & Challenges
+    AchievementManager().notifyAction(
+      consumeDrink ? AchievementEventType.drink : AchievementEventType.checkIn,
+      guestId,
+      pubId: pubId,
+    );
+
+    await ChallengeManager().evaluateProgress(guestId);
+
+    // UI Status speichern
+    SessionManager().currentPubId.value = pubId;
+
+    print("🍻 Check-In erfolgreich → ${pub.name}");
+    return true;
+  }
+
+  Future<void> logDrink({
+    required String guestId,
+    required String pubId,
+    required String pubName,
+    required double latitude,
+    required double longitude,
+    required String payment,
+  }) async {
+    final now = DateTime.now();
+
+    // → Activity anlegen
+    await logActivity(
+      Activity(
+        id: '',
+        guestId: guestId,
+        pubId: pubId,
+        action: 'drink',
+        timestampBegin: now,
+        latitude: latitude,
+        longitude: longitude,
+      ),
+    );
+
+    // → Achievement prüfen
+    AchievementManager().notifyAction(
+      AchievementEventType.drink,
+      guestId,
+      pubId: pubId,
+    );
+
+    print("🍺 Drink geloggt für $guestId in $pubName ($payment)");
+  }
+
+  Future<void> clearAllActivities() async {
+    final db = FirebaseFirestore.instance;
+
+    final batch = db.batch();
+
+  final snap = await db.collection('activities').get();
+  for (var doc in snap.docs) {
+  batch.delete(doc.reference);
+  }
+
+  await batch.commit();
+  print("🔥 Alle Bewegungsdaten gelöscht.");
+  }
+
+
+ }

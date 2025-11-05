@@ -1,18 +1,66 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:kneipentour/data/connection_service.dart';
 import 'package:kneipentour/data/pub_manager.dart';
+import 'package:kneipentour/data/session_manager.dart';
+import 'package:kneipentour/data/sync_manager.dart';
 import 'screens/start_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart'; // wird automatisch erstellt
 
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+FlutterLocalNotificationsPlugin();
+
 void main() async{
   WidgetsFlutterBinding.ensureInitialized();
+  ConnectionService().startMonitor();
+  SessionManager().startLocationUpdates();
+  const AndroidInitializationSettings androidInit =
+  AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  const InitializationSettings initSettings = InitializationSettings(
+    android: androidInit,
+    iOS: DarwinInitializationSettings(),
+  );
+
+  await flutterLocalNotificationsPlugin.initialize(initSettings);
+
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    print("📩 Push im Vordergrund empfangen: ${message.notification?.title}");
+
+    // Lokale Notification anzeigen
+    flutterLocalNotificationsPlugin.show(
+      0,
+      message.notification?.title,
+      message.notification?.body,
+      const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'mobile_unit', 'Mobile Einheit',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+      ),
+    );
+  });
+
+  Connectivity().onConnectivityChanged.listen((status) async {
+    if (status != ConnectivityResult.none) {
+      await SyncManager.processPendingActions();
+    }
+  });
+
+
   runApp(const KneipentourApp());
 }
+
+
 
 class KneipentourApp extends StatelessWidget {
   const KneipentourApp({super.key});

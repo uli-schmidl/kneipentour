@@ -2,6 +2,7 @@ Kneipentour App v0.1.3-beta
 © 2025 by Uli Schmidl
 
 Release notes:
+- Performance: Statusupdates nur bei Bewegung
 - Fix fürs Einchecken in Pubs: Entfernung muss < 40 m sein
 - Auto-Checkin, push-Benachrichtigung, wenn Entfernung von einem Pub < 20 m
 - Radius check, nur wer im Kneipen-Gebiet ist, darf die App verwenden

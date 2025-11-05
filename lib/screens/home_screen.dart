@@ -2,12 +2,15 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:kneipentour/config/location_config.dart';
 import 'package:kneipentour/data/activity_manager.dart';
+import 'package:kneipentour/data/challenge_manager.dart';
+import 'package:kneipentour/data/connection_service.dart';
 import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/data/pub_manager.dart';
 import 'package:kneipentour/data/rank_manager.dart';
@@ -16,7 +19,6 @@ import 'package:kneipentour/models/achievement.dart';
 import 'package:kneipentour/models/activity.dart';
 import 'package:kneipentour/screens/achievement_screen.dart';
 import 'package:kneipentour/screens/pub_info_screen.dart';
-import 'package:location/location.dart';
 import 'stamp_screen.dart';
 import 'ranking_screen.dart';
 import 'info_screen.dart';
@@ -34,22 +36,19 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
-  LocationData? _currentLocation;
   GoogleMapController? _mapController;
   Set<Marker> _guestMarkers = {};
   Set<Marker> _pubMarkers={};
   Marker? _mobileUnitMarker;
   BitmapDescriptor? _currentLocationIcon;
   final double notificationDistance = 20;
-  final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
   Pub? _mobilePubCached;
   Pub? _cachedNextPub;
-  // Beispiel: fester Mittelpunkt (z. B. Kirchweihplatz in Seitendorf)
   final LatLng _centerPoint = LocationConfig.centerPoint;
   bool _isWithinAllowedArea=true;
   bool _pubsReady = false;
-  bool _locationReady = false;
-  String _currentStatus = "unterwegs";
+  Position? _currentLocation;
+  String? _currentStatus="unterwegs";
 
 
 // Sichtbarer Radius in Metern
@@ -58,7 +57,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   StreamSubscription? _pubSub;
   StreamSubscription? _guestSub;
-  StreamSubscription<LocationData>? _locationSubscription;
 
 
   Future<void> _loadMobilePub() async {
@@ -71,20 +69,30 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _pubSub?.cancel();
     _guestSub?.cancel();
-    _locationSubscription?.cancel();
     super.dispose();
   }
 
   Future<void> _maybeUpdateNextPub() async {
-    if (!_pubsReady || !_locationReady) return;
+    if (!_pubsReady) return;
     await _checkForNextPubChange();
   }
 
 
   void _listenToGuestsAndActivities() {
     GuestManager().getGuestsStream().listen((guestSnap) async {
-      final activitiesSnap = await ActivityManager().getActivitiesStream().first;
+      // 📌 Schritt 1: Aktive Check-ins abrufen
+      final openCheckInsSnap = await FirebaseFirestore.instance
+          .collection('activities')
+          .where('action', isEqualTo: 'check-in')
+          .where('timestampEnd', isNull: true)
+          .get();
 
+      final checkedInGuestIds = openCheckInsSnap.docs
+          .map((doc) => doc['guestId'] as String)
+          .toSet();
+
+      // 📌 Schritt 2: Drink-Counts ermitteln (für Rankings / Emojis)
+      final activitiesSnap = await ActivityManager().getActivitiesStream().first;
       final drinksPerGuest = <String, int>{};
       for (var doc in activitiesSnap.docs) {
         final data = doc.data();
@@ -94,21 +102,37 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
 
+      // 📌 Schritt 3: Marker aufbauen – aber eingecheckte Gäste NICHT anzeigen
       Set<Marker> guestMarkers = {};
       for (var doc in guestSnap.docs) {
         final data = doc.data();
         final guestId = doc.id;
+
+        // ❗ Eingecheckte Gäste überspringen
+        if (checkedInGuestIds.contains(guestId)) {
+          continue;
+        }
         final lat = (data['latitude'] ?? 0).toDouble();
         final lon = (data['longitude'] ?? 0).toDouble();
-        final name = data['name'] ?? 'Gast';
-        final drinks = data['drinks'] ?? 0;
-        final rank = RankManager().getRankForDrinks(drinks);
+        if (lat == 0 || lon == 0) {
+          continue;
+        }
 
+        final drinkCount = drinksPerGuest[guestId] ?? 0;
+        final rank = RankManager().getRankForDrinks(drinkCount);
 
-        final distance = _calculateDistance(_centerPoint.latitude, _centerPoint.longitude, lat, lon);
-        if (distance > _visibleRadius) continue; // 👉 nur innerhalb von 1 km anzeigen
+        final distance = LocationConfig.calculateDistance(
+          _centerPoint.latitude,
+          _centerPoint.longitude,
+          lat,
+          lon,
+        );
 
-        final icon = await _getIcon("assets/icons/king.png",40,96);
+        // 👉 Nur Gäste im Radius anzeigen
+        if (distance > _visibleRadius) continue;
+
+        // ⬇️ Rank-Emoji + kleiner Avatar (kann später erweitert werden)
+        final icon = await _getIcon("assets/icons/king.png", 40, 96);
 
         guestMarkers.add(
           Marker(
@@ -116,17 +140,20 @@ class _HomeScreenState extends State<HomeScreen> {
             position: LatLng(lat, lon),
             icon: icon,
             infoWindow: InfoWindow(
-              title: "${rank.emoji} $name",
+              title: "${rank.emoji} $guestId",
+              snippet: "Getränke: $drinkCount",
             ),
-        ),
+          ),
         );
       }
+
       if (!mounted) return;
       setState(() {
         _guestMarkers = guestMarkers;
       });
     });
   }
+
 
 
   void _listenToMobileUnitMarker() {
@@ -263,9 +290,10 @@ class _HomeScreenState extends State<HomeScreen> {
     // 🚑 Einheit als "belegt" markieren (Firestore-Update)
     await PubManager().updateAvailability(mobilePub.id, false);
     AchievementManager().notifyAction(AchievementEventType.requestMobileUnit, SessionManager().guestId, pubId: mobilePub.id);
+    await ChallengeManager().evaluateProgress(SessionManager().guestId);
 
     // 📡 Benachrichtigung an die mobile Einheit
-    _showNotificationToMobileUnit();
+    //_showNotificationToMobileUnit();
     await ActivityManager().logActivity(
       Activity(
         id: '',
@@ -273,8 +301,8 @@ class _HomeScreenState extends State<HomeScreen> {
         pubId: '', // optional
         action: 'request_mobile',
         timestampBegin: DateTime.now(),
-        latitude: _currentLocation!.latitude!,
-        longitude: _currentLocation!.longitude!,
+        latitude: _currentLocation!.latitude,
+        longitude: _currentLocation!.longitude,
       ),
     );
 
@@ -282,10 +310,11 @@ class _HomeScreenState extends State<HomeScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text("Mobile Einheit wurde informiert! 🚐💨")),
     );
+    ActivityManager().sendPushToMobileUnit(guestName: SessionManager().guestId);
   }
 
 
-  void _showNotificationToMobileUnit() async {
+  /*void _showNotificationToMobileUnit() async {
     const AndroidNotificationDetails androidDetails =
     AndroidNotificationDetails(
       'mobile_unit_channel',
@@ -301,7 +330,7 @@ class _HomeScreenState extends State<HomeScreen> {
       'Gast $SessionManager().guestId benötigt Unterstützung.',
       NotificationDetails(android: androidDetails),
     );
-  }
+  }*/
 
   bool _pubsLoaded = false;
 
@@ -313,7 +342,6 @@ class _HomeScreenState extends State<HomeScreen> {
         guestId: SessionManager().guestId,
         onCheckIn: _checkInGuest,
         onCheckOut: _checkOutGuest,
-        currentLocation: _currentLocation,
       ),
       RankingScreen(),
       AchievementScreen(),
@@ -332,23 +360,42 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       _showAchievementPopup(context, achievement.id);
     };
-
-    // 👇 kleine Verzögerung, damit Build & Streams fertig sind
-    Future.delayed(const Duration(seconds: 2), () {
-      _initLocation();
+    SessionManager().lastKnownLocation.addListener(() {
+      if (!mounted) return;
+      setState(() {
+        _updateCurrentLocationMarker();
+      });
     });
+    _saveGuestToken();
+  }
+
+  Future<void> _saveGuestToken() async {
+    final token = await FirebaseMessaging.instance.getToken();
+    final guestId = SessionManager().guestId;
+
+    if (token == null || guestId.isEmpty) return;
+
+    await FirebaseFirestore.instance
+        .collection('guests')
+        .doc(guestId)
+        .set({
+      'fcmToken': token,
+      'lastUpdated': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    print("✅ Gast FCM-Token gespeichert: $token");
   }
 
   Future<void> _initializeApp() async {
     await PubManager().loadPubs(); // wirklich abwarten
     await _loadPubMarkers();       // erst danach Marker setzen
+    _currentLocation=SessionManager().lastKnownLocation.value;
     _pubsReady =true;
     setState(() => _pubsLoaded = true);
     _listenToMobileUnitMarker();
     _listenToPubs();
     _listenToGuestsAndActivities();
     _loadCurrentLocationIcon();
-    await _initLocation();
     await _loadMobilePub();
     AchievementManager().initialize();
     await _maybeUpdateNextPub();
@@ -370,127 +417,22 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _updateCurrentLocationMarker() {
-    if (!mounted) return; // ✅ verhindert setState nach dispose
-    if (_currentLocation == null || _currentLocationIcon == null) return;
+    final pos = SessionManager().lastKnownLocation.value;
+    if (pos == null || _currentLocationIcon == null) return;
 
-    final selfMarker = Marker(
+    final marker = Marker(
       markerId: const MarkerId('current_location'),
-      position: LatLng(_currentLocation!.latitude!, _currentLocation!.longitude!),
+      position: LatLng(pos.latitude, pos.longitude),
       icon: _currentLocationIcon!,
       infoWindow: const InfoWindow(title: 'Du bist hier 🍻'),
     );
 
-    // ⚙️ Gäste-Marker aktualisieren, aber "Du bist hier" immer hinzufügen
     setState(() {
-      // Entferne alte Selbst-Marker
       _guestMarkers.removeWhere((m) => m.markerId.value == 'current_location');
-      // Füge aktuellen Standort hinzu
-      _guestMarkers.add(selfMarker);
+      _guestMarkers.add(marker);
     });
   }
 
-  Future<void> _initLocation() async {
-    final location = Location();
-
-    bool serviceEnabled = await location.serviceEnabled();
-    if (!serviceEnabled) {
-      serviceEnabled = await location.requestService();
-      if (!serviceEnabled) {
-        print("❌ GPS nicht aktiviert");
-        return;
-      }
-    }
-
-    PermissionStatus permissionGranted = await location.hasPermission();
-    if (permissionGranted == PermissionStatus.denied) {
-      permissionGranted = await location.requestPermission();
-    }
-
-    if (permissionGranted != PermissionStatus.granted) {
-      print("❌ Keine Standortberechtigung");
-      return;
-    }
-
-    try {
-      // ✅ Aktuelle Position initial abrufen
-      final loc = await location.getLocation();
-      if (loc.latitude != null && loc.longitude != null) {
-        _currentLocation = loc;
-        final distance = _calculateDistance(
-          loc.latitude!,
-          loc.longitude!,
-          _centerPoint.latitude,
-          _centerPoint.longitude,
-        );
-
-        final within = distance <= _visibleRadius;
-        _isWithinAllowedArea = within;
-
-        print("📍 Erste Position: ${loc.latitude}, ${loc.longitude} → innerhalb Bereich: $_isWithinAllowedArea");
-
-        // Gäste-Standort sofort speichern
-        await GuestManager().updateGuestLocation(
-          guestId: SessionManager().guestId,
-          latitude: loc.latitude!,
-          longitude: loc.longitude!,
-        );
-
-        // Erste Karte & Marker initialisieren
-        if (within) _updateCurrentLocationMarker();
-        _locationReady = true;     // ✅ Location ist da
-        await _maybeUpdateNextPub(); // 🔔 jetzt können wir das „Nächste Kneipe“-Panel setzen
-      }
-
-      // 🔁 Live-Standort-Stream starten
-      _locationSubscription = location.onLocationChanged.listen((loc) async {
-        if (!mounted) return;
-        if (loc.latitude == null || loc.longitude == null) return;
-
-        _currentLocation = loc;
-
-        final distance = _calculateDistance(
-          loc.latitude!,
-          loc.longitude!,
-          _centerPoint.latitude,
-          _centerPoint.longitude,
-        );
-        final within = distance <= _visibleRadius;
-
-        // 👇 Nur wenn sich der Radiusstatus ändert (rein/raus)
-        if (within != _isWithinAllowedArea) {
-          _isWithinAllowedArea = within;
-          print("📍 Bereichsstatus geändert → innerhalb: $within");
-          setState(() {}); // nur Statuswechsel → minimaler rebuild
-        }
-
-        if (within) {
-          // 🔹 Marker-Update (keine komplette UI)
-          _updateCurrentLocationMarker();
-
-          // 🔹 Standort in Firestore
-          await GuestManager().updateGuestLocation(
-            guestId: SessionManager().guestId,
-            latitude: loc.latitude!,
-            longitude: loc.longitude!,
-          );
-
-          // 🔹 Achievement-Event
-          AchievementManager().notifyAction(
-            AchievementEventType.locationUpdate,
-            SessionManager().guestId,
-          );
-
-          // 🔹 Optional: nur bei größerer Bewegung "nächste Kneipe" prüfen
-          _checkForNextPubChange();
-          _checkGuestStatus();
-          Timer.periodic(const Duration(seconds: 30), (_) => _checkGuestStatus());
-
-        }
-      });
-    } catch (e) {
-      print("⚠️ Fehler bei getLocation(): $e");
-    }
-  }
 
   Future<void> _checkForNextPubChange() async {
     if (_currentLocation == null) return;
@@ -502,35 +444,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_cachedNextPub == null || _cachedNextPub!.id != nextPub.id) {
       setState(() {
         _cachedNextPub = nextPub;
-      });
-    }
-  }
-
-  Future<void> _checkGuestStatus() async {
-    final guestId = SessionManager().guestId;
-    final activeCheckIn = await ActivityManager().getCheckInActivity(guestId);
-
-    if (!mounted) return;
-
-    if (activeCheckIn != null && activeCheckIn.pubId.isNotEmpty) {
-      final pub = PubManager().allPubs.firstWhere(
-            (p) => p.id == activeCheckIn.pubId,
-        orElse: () => Pub(
-          id: activeCheckIn.pubId,
-          name: "Unbekannte Kneipe",
-          description: "",
-          latitude: 0,
-          longitude: 0,
-          iconPath: "",
-        ),
-      );
-
-      setState(() {
-        _currentStatus = "in ${pub.name}";
-      });
-    } else {
-      setState(() {
-        _currentStatus = "unterwegs";
       });
     }
   }
@@ -547,13 +460,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final LatLng startPos;
     if (_currentLocation == null ||
-        _currentLocation!.latitude == null ||
-        _currentLocation!.longitude == null ||
         (_currentLocation!.latitude == 0 && _currentLocation!.longitude == 0)) {
       // 🧭 Fallback: FFW-Haus
       startPos = const LatLng(49.4521, 11.0767);
     } else {
-      startPos = LatLng(_currentLocation!.latitude!, _currentLocation!.longitude!);
+      startPos = LatLng(_currentLocation!.latitude, _currentLocation!.longitude);
     }
 
 
@@ -670,40 +581,65 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: const Color(0xFF121212),
         elevation: 8,
         shadowColor: Colors.orangeAccent.withOpacity(0.3),
-        title: ValueListenableBuilder<String?>(
-          valueListenable: SessionManager().currentPubId,
-          builder: (context, currentPubId, _) {
-            final isInPub = currentPubId != null;
+        title: StreamBuilder<bool>(
+          stream: ConnectionService().connectivityStream,
+          builder: (context, snapshot) {
+            final isOnline = snapshot.data ?? true;
 
-            final statusEmoji = isInPub ? "🍻" : "🚶‍♂️";
-            final statusText = isInPub ? "in ${PubManager().getPubName(currentPubId)}" : "unterwegs";
-            final statusColor = isInPub ? Colors.greenAccent : Colors.white70;
-
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            return Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  widget.userName,
-                  style: const TextStyle(
-                    color: Colors.orangeAccent,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 18,
-                  ),
+                ValueListenableBuilder<String?>(
+                  valueListenable: SessionManager().currentPubId,
+                  builder: (context, currentPubId, _) {
+                    final isInPub = currentPubId != null;
+
+                    final statusEmoji = isInPub ? "🍻" : "🚶‍♂️";
+                    final statusText = isInPub
+                        ? "in ${PubManager().getPubName(currentPubId)}"
+                        : "unterwegs";
+                    final statusColor = isInPub ? Colors.greenAccent : Colors.white70;
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.userName,
+                          style: const TextStyle(
+                            color: Colors.orangeAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        ),
+                        Text(
+                          "$statusEmoji $statusText",
+                          style: TextStyle(
+                            color: statusColor,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
-                Text(
-                  "$statusEmoji $statusText",
-                  style: TextStyle(
-                    color: statusColor,
-                    fontSize: 14,
+
+                const SizedBox(width: 12),
+
+                // 🟢 / 🔴 Online-Status
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isOnline ? Colors.greenAccent : Colors.redAccent,
                   ),
                 ),
               ],
             );
           },
         ),
-
-
       ),
+
 
       body: _selectedIndex == 0
           ? Column(
@@ -762,8 +698,28 @@ class _HomeScreenState extends State<HomeScreen> {
     Marker? mobileMarker;
 
     for (var pub in pubs) {
+
+      // 🟡 Anzahl eingecheckter Gäste holen
+      final currentGuests = await ActivityManager().getActiveCheckInsForPub(pub.id);
+      final capacity = pub.capacity;
+
+      // 🟢 Icon abhängig von geöffnet / geschlossen
       final iconPath = pub.isOpen ? pub.iconPath : 'assets/icons/closed.png';
-      final icon = await _getIcon(iconPath,96,96);
+      final icon = await _getIcon(iconPath, 96, 96);
+
+      // 🟥 Farbe abhängig vom Füllstand (optional nice effect)
+      final fill = currentGuests / capacity;
+      String fullnessText;
+      if (fill < 0.5) {
+        fullnessText = "🟢 rankommen!";
+      } else if (fill < 0.75) {
+        fullnessText = "🟠 gmidli";
+      } else if (fill < 1){
+        fullnessText = "🔴 kuschelilg";
+      } else {
+        fullnessText = "🔴 zerbirst";
+      }
+
 
       final marker = Marker(
         markerId: MarkerId(pub.id),
@@ -771,7 +727,7 @@ class _HomeScreenState extends State<HomeScreen> {
         icon: icon,
         infoWindow: InfoWindow(
           title: pub.name,
-          snippet: pub.description,
+          snippet: "$currentGuests / $capacity · $fullnessText",
           onTap: () {
             Navigator.push(
               context,
@@ -781,7 +737,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   guestId: SessionManager().guestId,
                   onCheckIn: _checkInGuest,
                   onCheckOut: _checkOutGuest,
-                  currentLocation: _currentLocation,
                 ),
               ),
             );
@@ -796,14 +751,17 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    if (!mounted) return;
     setState(() {
       _pubMarkers = pubMarkers;
       _mobileUnitMarker = mobileMarker;
     });
+
     if (_mapController != null && _pubMarkers.isNotEmpty) {
       Future.delayed(const Duration(milliseconds: 500), _fitMapToMarkers);
     }
   }
+
 
   Widget _buildNextPubSection() {
     final nextPub = _cachedNextPub;
@@ -818,7 +776,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    final distance = _calculateDistance(
+    final distance = LocationConfig.calculateDistance(
       _currentLocation?.latitude ?? 0,
       _currentLocation?.longitude ?? 0,
       nextPub.latitude,
@@ -843,7 +801,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   guestId: SessionManager().guestId,
                   onCheckIn: _checkInGuest,
                   onCheckOut: _checkOutGuest,
-                  currentLocation: _currentLocation,
                 ),
               ),
             );
@@ -898,25 +855,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
 
-  Future<void> tryCheckIn(String guestId) async {
-    if (_currentLocation == null) return;
-
-    for (var pub in PubManager().allPubs) {
-      double distance = _calculateDistance(
-        _currentLocation!.latitude!,
-        _currentLocation!.longitude!,
-        pub.latitude,
-        pub.longitude,
-      );
-
-      if (distance <= 20) { // weniger als 50 Meter
-        await _checkInGuest(guestId,pub.id);
-      }
-    }
-  }
-
   Future<bool> _checkOutGuest(String guestId, String pubId) async {
     AchievementManager().notifyAction(AchievementEventType.checkOut, guestId, pubId: pubId);
+    await ChallengeManager().evaluateProgress(SessionManager().guestId);
 
     print("🔁 Checkout: $pubId ($guestId)");
 
@@ -943,74 +884,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
   Future<bool> _checkInGuest(String guestId, String pubId, {bool consumeDrink = false}) async {
-    final pub = PubManager().allPubs.firstWhere(
-          (p) => p.id == pubId,
-      orElse: () => Pub(id: pubId, name: 'Kneipe', description: '', latitude: 0, longitude: 0, iconPath: ''),
-    );
-
     final loc = _currentLocation;
-    if (loc == null || loc.latitude == null || loc.longitude == null) {
+
+    if (loc == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("❌ Standort konnte nicht ermittelt werden.")),
+        const SnackBar(content: Text("❌ Standort nicht verfügbar.")),
       );
       return false;
     }
 
-    // 🧭 Distanz prüfen
-    final distance = _calculateDistance(
-      loc.latitude!,
-      loc.longitude!,
-      pub.latitude,
-      pub.longitude,
+    final ok = await ActivityManager().checkInGuest(
+      guestId: guestId,
+      pubId: pubId,
+      consumeDrink: consumeDrink,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
     );
 
-    if (distance > 50) {
+    if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("📍 Du bist zu weit entfernt (${distance.round()} m) – gehe näher an ${pub.name} heran."),
-        ),
+        SnackBar(content: Text("🍻 Du bist jetzt in $pubId!")),
       );
-      return false;
+      setState(() {});
     }
 
-    // ✅ Alles ok → Check-in
-    // 🔁 Falls Gast noch in einer anderen Kneipe eingecheckt ist → automatisch auschecken
-    final activeCheckIn = await ActivityManager().getCheckInActivity(guestId);
-    SessionManager().currentPubId.value = pubId;
-    if (activeCheckIn != null && activeCheckIn.pubId != pubId) {
-      print("🔁 Auto-Checkout von alter Kneipe ${activeCheckIn.pubId}");
-      activeCheckIn.timestampEnd = DateTime.now();
-      await ActivityManager().updateActivity(activeCheckIn);
-      AchievementManager().notifyAction(AchievementEventType.checkOut, guestId, pubId: activeCheckIn.pubId);
-    }
-
-    AchievementManager().notifyAction(AchievementEventType.checkIn, guestId, pubId: pubId);
-
-    final now = DateTime.now();
-    final action = consumeDrink ? 'drink' : 'check-in';
-
-    await ActivityManager().logActivity(
-      Activity(
-        id: '',
-        guestId: SessionManager().guestId,
-        pubId: pubId,
-        action: action,
-        timestampBegin: now,
-        latitude: loc.latitude!,
-        longitude: loc.longitude!,
-      ),
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("🍻 Du bist jetzt in ${pub.name} eingecheckt!")),
-    );
-
-    setState(() {});
-    return true;
+    return ok;
   }
-
-
-
 
   void _showAchievementPopup(BuildContext context, String id) {
     final achievement = AchievementManager()
@@ -1031,11 +930,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
 
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const p = 0.017453292519943295;
-    final a = 0.5 - cos((lat2 - lat1) * p) / 2 + cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lon2 - lon1) * p)) / 2;
-    return 12742000 * asin(sqrt(a));
-  }
 
   Future<Pub?> _getNextUnvisitedPub() async {
     final openPubs = PubManager().allPubs.where((p) => p.isOpen && !p.isMobileUnit).toList();
@@ -1046,8 +940,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (unvisited.isEmpty) return null;
 
     unvisited.sort((a, b) {
-      final da = _calculateDistance(_currentLocation!.latitude!, _currentLocation!.longitude!, a.latitude, a.longitude);
-      final db = _calculateDistance(_currentLocation!.latitude!, _currentLocation!.longitude!, b.latitude, b.longitude);
+      final da = LocationConfig.calculateDistance(_currentLocation!.latitude, _currentLocation!.longitude, a.latitude, a.longitude);
+      final db = LocationConfig.calculateDistance(_currentLocation!.latitude, _currentLocation!.longitude, b.latitude, b.longitude);
       return da.compareTo(db);
     });
 

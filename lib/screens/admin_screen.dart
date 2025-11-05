@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:kneipentour/data/activity_manager.dart';
 import 'package:kneipentour/data/challenge_manager.dart';
 import 'package:kneipentour/data/session_manager.dart';
 import 'package:kneipentour/models/challenge.dart';
@@ -305,7 +306,7 @@ class _AdminScreenState extends State<AdminScreen> {
                         value: challenge.isActive,
                         onChanged: (val) async {
                           await ChallengeManager().toggleChallenge(
-                            challenge.id,
+                            challenge,
                             val,
                             durationMinutes: challenge.durationMinutes,
                           );
@@ -330,6 +331,34 @@ class _AdminScreenState extends State<AdminScreen> {
             onPressed: _addUserDialog,
           ),
           const SizedBox(height: 12),
+        ElevatedButton.icon(
+          icon: const Icon(Icons.delete_forever),
+          label: const Text("Alle Bewegungsdaten löschen"),
+          style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.redAccent,
+        ),
+          onPressed: () async {
+          final confirm = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+          title: const Text("Wirklich löschen?"),
+          content: const Text("Das löscht alle Check-Ins, Drinks und Bewegungsdaten. Nicht rückgängig."),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Abbrechen")),
+            TextButton(onPressed: () => Navigator.pop(context, true), child: const Text("Löschen")),
+          ],
+          ),
+        );
+
+        if (confirm == true) {
+          await ActivityManager().clearAllActivities();
+          ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("🔥 Bewegungsdaten wurden gelöscht.")),
+          );
+        }
+        },
+        ),
+
         ],
       ),
     );

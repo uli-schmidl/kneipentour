@@ -333,7 +333,7 @@ class _WirtScreenState extends State<WirtScreen> {
           .collection('activities')
           .where('pubId', isEqualTo: myPub!.id)
           .where('action', isEqualTo: 'check-in')
-          .where('timestampEnd', isEqualTo: null)
+          .where('timestampEnd', isNull: null)
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {

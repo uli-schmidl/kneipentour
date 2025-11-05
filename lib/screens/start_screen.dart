@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:kneipentour/config/location_config.dart';
 import 'package:kneipentour/data/session_manager.dart';
-import 'package:location/location.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/screens/home_screen.dart';
@@ -21,9 +20,9 @@ class _StartScreenState extends State<StartScreen> {
   final TextEditingController _nameController = TextEditingController();
   String generatedName = "";
   bool _loading = true;
-  Location? _location;
-  StreamSubscription<LocationData>? _locationSub;
   bool _isWithinAllowedArea = false;
+  VoidCallback? _locationListener;
+
 
   @override
   void initState() {
@@ -34,102 +33,74 @@ class _StartScreenState extends State<StartScreen> {
 
   @override
   void dispose() {
-    _locationSub?.cancel();
     _nameController.dispose();
+    if (_locationListener != null) {
+      SessionManager().lastKnownLocation.removeListener(_locationListener!);
+    }
     super.dispose();
   }
 
 
-  Future<void> _checkLocationRadius() async {
-    _location = Location();
-
-    bool serviceEnabled = await _location!.serviceEnabled();
-    if (!serviceEnabled) {
-      serviceEnabled = await _location!.requestService();
-      if (!serviceEnabled) {
-        print("❌ Standortdienst deaktiviert");
-        setState(() {
-          _isWithinAllowedArea = false;
-        });
-        return;
-      }
-    }
-
-    PermissionStatus permissionGranted = await _location!.hasPermission();
-    if (permissionGranted == PermissionStatus.denied) {
-      permissionGranted = await _location!.requestPermission();
-      if (permissionGranted != PermissionStatus.granted) {
-        print("❌ Keine Standortberechtigung");
-        setState(() {
-          _isWithinAllowedArea = false;
-        });
-        return;
-      }
-    }
-
-    // ✅ Einmalige Prüfung zu Beginn
-    final loc = await _location!.getLocation();
-    _evaluateLocation(loc);
-
-    // 🔁 Live-Überwachung aktivieren
-    _locationSub = _location!.onLocationChanged.listen((loc) {
-      _evaluateLocation(loc);
-    });
-  }
-
-  void _evaluateLocation(LocationData loc) {
-    if (loc.latitude == null || loc.longitude == null) return;
-
-    final distance = _calculateDistance(
-      loc.latitude!,
-      loc.longitude!,
-      LocationConfig.centerPoint.latitude,
-      LocationConfig.centerPoint.longitude,
-    );
-
-    final within = distance <= LocationConfig.allowedRadius;
-
-    if (within != _isWithinAllowedArea) {
-      print("📍 Standort geändert: ${distance.toStringAsFixed(1)} m → innerhalb: $within");
-      setState(() {
-        _isWithinAllowedArea = within;
-      });
-    }
-  }
-
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const p = 0.017453292519943295; // π/180
-    final a = 0.5 -
-        cos((lat2 - lat1) * p) / 2 +
-        cos(lat1 * p) * cos(lat2 * p) *
-            (1 - cos((lon2 - lon1) * p)) / 2;
-    return 12742000 * asin(sqrt(a)); // Meter
-  }
-
-  Future<void> _checkExistingUser() async {
-    await _checkLocationRadius();
-
-    if (!_isWithinAllowedArea) {
-      print("🚫 Außerhalb des Bereichs – Auto-Login deaktiviert");
-      setState(() {
-        _loading = false;
-      });
-      return;
-    }
+    Future<void> _checkExistingUser() async {
+    // 🔹 Location Listener starten
+    _startLocationWatcher();
 
     final prefs = await SharedPreferences.getInstance();
     final savedName = prefs.getString('guestName');
+
     if (savedName != null) {
-      debugPrint("🔁 Automatischer Login als $savedName");
-      SessionManager().initGuest(guestId: savedName, name: savedName);
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => HomeScreen(userName: savedName)),
-      );
-    } else {
-      setState(() => _loading = false);
+      // ✅ Nutzer ist bekannt → direkt einloggen, aber erst wenn im erlaubten Gebiet
+      print("🔁 Nutzer gefunden: $savedName – warte auf Standort...");
+
+      // Wir warten kurz die erste Standortbestimmung ab
+      _locationListener = () {
+        if (!mounted) return; // ✅ verhindert Crash
+
+        final pos = SessionManager().lastKnownLocation.value;
+        if (pos == null) return;
+
+        final distance = LocationConfig.calculateDistance(
+          pos.latitude,
+          pos.longitude,
+          LocationConfig.centerPoint.latitude,
+          LocationConfig.centerPoint.longitude,
+        );
+
+        final within = distance <= LocationConfig.allowedRadius;
+
+        if (within != _isWithinAllowedArea) {
+          setState(() => _isWithinAllowedArea = within);
+        }
+      };
+
+      SessionManager().lastKnownLocation.addListener(_locationListener!);
+
     }
+
+    setState(() => _loading = false);
   }
+
+  void _startLocationWatcher() {
+    SessionManager().lastKnownLocation.addListener(() {
+      final pos = SessionManager().lastKnownLocation.value;
+      if (pos == null) return;
+
+      final distance = LocationConfig.calculateDistance(
+        pos.latitude,
+        pos.longitude,
+        LocationConfig.centerPoint.latitude,
+        LocationConfig.centerPoint.longitude,
+      );
+
+      final within = distance <= LocationConfig.allowedRadius;
+      if (within != _isWithinAllowedArea) {
+        print("📍 Radiusänderung → innerhalb: $within");
+        setState(() => _isWithinAllowedArea = within);
+      }
+    });
+  }
+
+
 
   Future<void> _startTour() async {
     final prefs = await SharedPreferences.getInstance();
@@ -198,13 +169,6 @@ class _StartScreenState extends State<StartScreen> {
     } while (exists);
 
     setState(() => generatedName = newName);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text("💡 Vorschlag: $generatedName ist noch frei!"),
-        backgroundColor: Colors.greenAccent.shade700,
-      ),
-    );
   }
 
   @override

@@ -3,17 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:kneipentour/data/achievement_manager.dart';
 import 'package:kneipentour/data/activity_manager.dart';
 import 'package:flutter_paypal_payment/flutter_paypal_payment.dart';
+import 'package:kneipentour/data/connection_service.dart';
 import 'package:kneipentour/data/rank_manager.dart';
 import 'package:kneipentour/data/session_manager.dart';
 import 'package:kneipentour/models/achievement.dart';
 import 'package:kneipentour/models/activity.dart';
-import 'package:location/location.dart';
 import '../models/pub.dart';
 
 class PubInfoScreen extends StatefulWidget {
   final Pub pub;
   final String guestId;
-  final LocationData? currentLocation; // 👈 hinzufügen
   final Future<bool> Function(String, String, {bool consumeDrink}) onCheckIn;
   final Future<bool> Function(String, String) onCheckOut;
 
@@ -22,7 +21,6 @@ class PubInfoScreen extends StatefulWidget {
     required this.guestId,
     required this.onCheckIn,
     required this.onCheckOut,
-    required this.currentLocation,
     super.key,
   });
 
@@ -37,11 +35,19 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
   // 🔹 neu: ValueNotifier für Cooldown
   final ValueNotifier<int> _secondsRemaining = ValueNotifier<int>(0);
   Timer? _cooldownTimer;
+  int currentGuests = 0;
+
 
   @override
   void initState() {
     super.initState();
     _checkIfCheckedIn();
+    _loadCurrentCount();
+  }
+
+  Future<void> _loadCurrentCount() async {
+    currentGuests = await ActivityManager().getActiveCheckInsForPub(widget.pub.id);
+    if (mounted) setState(() {});
   }
 
   Future<void> _checkIfCheckedIn() async {
@@ -68,7 +74,22 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
   }
 
   void _handleCheckIn() async {
-    final success = await widget.onCheckIn(widget.guestId, widget.pub.id, consumeDrink: false);
+    final loc = SessionManager().lastKnownLocation.value;
+
+    if (loc == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("❌ Standort konnte nicht ermittelt werden.")),
+      );
+      return;
+    }
+
+    final success = await ActivityManager().checkInGuest(
+      guestId: widget.guestId,
+      pubId: widget.pub.id,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+    );
+
     if (success) {
       setState(() {
         isCheckedIn = true;
@@ -76,6 +97,7 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
       });
     }
   }
+
 
 
   void _handleCheckOut() async {
@@ -245,39 +267,57 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
   }
 
   Future<void> _logDrink(String pubId, String pubName, {String payment = "cash"}) async {
-    final loc = widget.currentLocation;
+    final loc = SessionManager().lastKnownLocation.value;
 
-    await ActivityManager().logActivity(
-      Activity(
-        id: '',
-        guestId: SessionManager().guestId,
-        pubId: pubId,
-        action: 'drink',
-        timestampBegin: DateTime.now(),
-        latitude: loc?.latitude ?? 0,
-        longitude: loc?.longitude ?? 0,
-      ),
-    );
+    final guestId = SessionManager().guestId;
 
-    AchievementManager().notifyAction(
-      AchievementEventType.drink,
-      SessionManager().guestId,
+    // Default auf 0 fallback (kann später offline behandelt werden)
+    final lat = loc?.latitude ?? 0;
+    final lon = loc?.longitude ?? 0;
+
+    await ActivityManager().logDrink(
+      guestId: guestId,
       pubId: pubId,
+      pubName: pubName,
+      latitude: lat,
+      longitude: lon,
+      payment: payment,
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(payment == "cash"
-            ? "🍻 Getränk registriert (Barzahlung)"
-            : "🍻 Getränk registriert (PayPal)"),
+        content: Text(
+          payment == "cash"
+              ? "🍻 Getränk registriert (Barzahlung)"
+              : "🍻 Getränk registriert (PayPal)",
+        ),
       ),
     );
   }
 
 
 
+
   @override
   Widget build(BuildContext context) {
+    final capacity = widget.pub.capacity;
+    final fill = capacity > 0 ? (currentGuests / capacity) : 0.0;
+
+    String fillText;
+    Color barColor;
+    if (fill < 0.5) {
+      barColor = Colors.greenAccent;
+      fillText = "🟢 rankommen!";
+    } else if (fill < 0.75) {
+      barColor = Colors.orangeAccent;
+      fillText = "🟠 gmidli";
+    } else if (fill < 1){
+      barColor = Colors.redAccent;
+      fillText = "🔴 kuschelilg";
+    } else {
+      barColor = Colors.redAccent;
+      fillText = "🔥 zerbirst";
+    }
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       body: CustomScrollView(
@@ -333,6 +373,33 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
                   ),
                   const SizedBox(height: 24),
 
+                  Text(
+                  "Füllstand",
+                  style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                  value: fill.clamp(0, 1),
+                  minHeight: 14,
+                  backgroundColor: Colors.white24,
+                  valueColor: AlwaysStoppedAnimation(barColor),
+                  ),
+                  ),
+
+                  const SizedBox(height: 6),
+                  Text(
+                  "$currentGuests / $capacity · $fillText",
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                  const SizedBox(height: 28),
+
                   Center(
                     child: Column(
                       children: [
@@ -344,6 +411,28 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
                             backgroundColor: isCheckedIn ? Colors.red : Colors.green,
                           ),
                         ),
+                        StreamBuilder<bool>(
+                          stream: ConnectionService().connectivityStream,
+                          builder: (context, snapshot) {
+                            final isOnline = snapshot.data ?? true;
+
+                            // ✅ Button nur anzeigen, wenn OFFLINE
+                            if (isOnline) return const SizedBox.shrink();
+
+                            return ElevatedButton.icon(
+                              icon: const Icon(Icons.qr_code_scanner),
+                              label: const Text("QR Check-in (Offline)"),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orangeAccent,
+                                foregroundColor: Colors.black,
+                              ),
+                              onPressed: () async {
+                                Navigator.pushNamed(context, "/qrCheckin");
+                              },
+                            );
+                          },
+                        ),
+
                         const SizedBox(height: 12),
 
                         // 🔹 Nur der Button rebuildet über ValueListenableBuilder

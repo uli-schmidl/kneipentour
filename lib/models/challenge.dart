@@ -1,12 +1,14 @@
 // lib/models/challenge.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum ChallengeConditionType {
+enum EligibleType {
   allGuests,
   checkedInGuests,
   inSpecificPub,
   minDrinks,
   hasAchievement,
+  notCheckedInGuest,
+
 }
 
 class Challenge {
@@ -15,6 +17,9 @@ class Challenge {
   final String description;
   final String iconPath;
   final DateTime startTime;
+  final double? targetLatitude;
+  final double? targetLongitude;
+  final double? radiusMeters;
 
   /// Dauer in Minuten (wird im UI als Restzeit angezeigt)
   final int durationMinutes;
@@ -23,7 +28,7 @@ class Challenge {
   final bool isActive;
 
   /// Zielgruppe / Teilnahme-Voraussetzung
-  final ChallengeConditionType conditionType;
+  final EligibleType eligibleType;
 
   /// Optional je nach Condition-Type
   final String? targetPubId;            // für inSpecificPub
@@ -38,10 +43,13 @@ class Challenge {
     required this.startTime,
     required this.durationMinutes,
     required this.isActive,
-    required this.conditionType,
+    required this.eligibleType,
     this.targetPubId,
     this.minDrinks,
     this.requiredAchievementId,
+    this.targetLatitude,
+    this.targetLongitude,
+    this.radiusMeters
   });
 
   /// Abgeleitete Helfer
@@ -71,7 +79,7 @@ class Challenge {
       startTime: dt,
       durationMinutes: duration,
       isActive: (map['isActive'] ?? true) == true,
-      conditionType: _parseConditionType(map['conditionType']),
+      eligibleType: _parseEligibleType(map['eligibleType']),
       targetPubId: map['targetPubId'],
       minDrinks: map['minDrinks'] is int ? map['minDrinks'] as int
           : int.tryParse('${map['minDrinks'] ?? ''}'),
@@ -86,21 +94,21 @@ class Challenge {
     'startTime': Timestamp.fromDate(startTime),
     'durationMinutes': durationMinutes,
     'isActive': isActive,
-    'conditionType': conditionType.name,
+    'eligibleType': eligibleType.name,
     if (targetPubId != null) 'targetPubId': targetPubId,
     if (minDrinks != null) 'minDrinks': minDrinks,
     if (requiredAchievementId != null) 'requiredAchievementId': requiredAchievementId,
   };
 
-  static ChallengeConditionType _parseConditionType(dynamic raw) {
+  static EligibleType _parseEligibleType(dynamic raw) {
     final s = (raw ?? '').toString();
     switch (s) {
-      case 'checkedInGuests': return ChallengeConditionType.checkedInGuests;
-      case 'inSpecificPub':  return ChallengeConditionType.inSpecificPub;
-      case 'minDrinks':      return ChallengeConditionType.minDrinks;
-      case 'hasAchievement': return ChallengeConditionType.hasAchievement;
-      case 'allGuests':
-      default:               return ChallengeConditionType.allGuests;
+      case 'checkedInGuests': return EligibleType.checkedInGuests;
+      case 'inSpecificPub':  return EligibleType.inSpecificPub;
+      case 'minDrinks':      return EligibleType.minDrinks;
+      case 'hasAchievement': return EligibleType.hasAchievement;
+    case 'allGuests':
+      default:               return EligibleType.allGuests;
     }
   }
 }

@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../models/pub.dart';
 
 class PubManager {
@@ -140,5 +144,43 @@ class PubManager {
     }
   }
 
+  Pub? getPubById(String pubId) {
+    try {
+      return allPubs.firstWhere((p) => p.id == pubId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+
 
 }
+class QrGenerator {
+  static Widget buildPubQr(Pub pub, {double size = 260}) {
+    final payload = jsonEncode({
+      "type": "checkin",
+      "pubId": pub.id,
+      "pubName": pub.name,
+      "lat": pub.latitude,
+      "lon": pub.longitude,
+    });
+
+    return QrImageView(
+      data: payload,
+      version: QrVersions.auto,
+      size: size,
+      backgroundColor: Colors.white,
+      foregroundColor: Colors.black,
+      eyeStyle: const QrEyeStyle(
+        eyeShape: QrEyeShape.square,
+        color: Colors.black,
+      ),
+      dataModuleStyle: const QrDataModuleStyle(
+        dataModuleShape: QrDataModuleShape.square,
+        color: Colors.black,
+      ),
+    );
+  }
+}
+
+

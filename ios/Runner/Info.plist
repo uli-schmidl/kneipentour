@@ -28,6 +28,10 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+    <string>Die App benötigt deinen Standort, um den Check-in zu bestätigen.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Standort wird benötigt, um deine Tour korrekt zu tracken.</string>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>

@@ -1,7 +1,12 @@
+import 'dart:async';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:kneipentour/data/activity_manager.dart';
 import 'package:kneipentour/models/activity.dart';
+import 'package:kneipentour/screens/start_screen.dart';
 import '../models/user.dart';
 import '../models/pub.dart';
 import '../data/pub_manager.dart';
@@ -37,7 +42,64 @@ class _MobileUnitScreenState extends State<MobileUnitScreen> {
         isOpen: true,
       ),
     );
+    _saveMobileUnitToken();
+    _startListeningForRequests();
+
   }
+
+  Future<void> _saveMobileUnitToken() async {
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token == null) return;
+
+    await FirebaseFirestore.instance
+        .collection('mobile_unit')
+        .doc('status')
+        .set(
+      {
+        'fcmToken': token,
+        'isOnline': true,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      },
+      SetOptions(merge: true),
+    );
+
+    print("✅ Mobile Unit Token gespeichert: $token");
+  }
+
+  StreamSubscription<Activity?>? _requestSub;
+
+  void _startListeningForRequests() {
+    _requestSub = ActivityManager()
+        .streamOpenMobileUnitRequest()
+        .listen((request) {
+      setState(() {
+        currentRequest = request;
+
+        // 🔥 Wenn es eine aktive Anfrage gibt → Einheit automatisch "nicht verfügbar"
+        mobileUnit.isAvailable = (request == null);
+
+        // 💾 Im Firestore spiegeln
+        PubManager().updateAvailability(mobileUnit.id, mobileUnit.isAvailable);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _requestSub?.cancel();
+    super.dispose();
+  }
+
+  String _timeAgo(DateTime time) {
+    final diff = DateTime.now().difference(time);
+
+    if (diff.inSeconds < 60) return "${diff.inSeconds}s";
+    if (diff.inMinutes < 60) return "${diff.inMinutes} min";
+    if (diff.inHours < 24) return "${diff.inHours} h";
+
+    return "${diff.inDays} d";
+  }
+
 
   Future<void> _loadRequest() async {
     final request = await ActivityManager().getOpenMobileUnitRequest();
@@ -46,28 +108,31 @@ class _MobileUnitScreenState extends State<MobileUnitScreen> {
 
   Future<void> _finishRequest() async {
     if (currentRequest == null) return;
+
     await ActivityManager().closeMobileUnitRequest(currentRequest!.id);
-    setState(() => currentRequest = null);
+    await PubManager().updateAvailability(mobileUnit.id, true);
+
+    setState(() {
+      currentRequest = null;
+      mobileUnit.isAvailable = true;
+    });
   }
 
-  void _toggleAvailability() {
+
+  void _toggleAvailability() async {
     setState(() {
       mobileUnit.isAvailable = !mobileUnit.isAvailable;
     });
-    if(mobileUnit.isAvailable){
-      _finishRequest();
+
+    await PubManager().updateAvailability(mobileUnit.id, mobileUnit.isAvailable);
+
+    if (!mobileUnit.isAvailable && currentRequest == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("📞 Noch keine Anfrage, aber Einheit blockiert.")),
+      );
     }
-    PubManager().updatePubStatus(mobileUnit.id, mobileUnit.isAvailable);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          mobileUnit.isAvailable
-              ? "🚨 Anforderung wieder aktiviert"
-              : "🛑 Mobile Einheit im Einsatz blockiert",
-        ),
-      ),
-    );
   }
+
 
   void _toggleVisibility() {
     setState(() {
@@ -85,7 +150,6 @@ class _MobileUnitScreenState extends State<MobileUnitScreen> {
   }
 
   @override
-  @override
   Widget build(BuildContext context) {
     final LatLng? requestPosition = (currentRequest != null)
         ? LatLng(currentRequest!.latitude, currentRequest!.longitude)
@@ -93,8 +157,16 @@ class _MobileUnitScreenState extends State<MobileUnitScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text("Mobile Einheit – ${widget.user.username}"),
-        backgroundColor: Colors.redAccent,
+        title: Text("Wirtbereich – Mobile Unit"),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const StartScreen()),
+            );
+          },
+        ),
       ),
       body: Padding(
         padding: const EdgeInsets.all(20),
@@ -119,7 +191,7 @@ class _MobileUnitScreenState extends State<MobileUnitScreen> {
                         position: requestPosition,
                         infoWindow: InfoWindow(
                           title: currentRequest!.guestId,
-                          snippet: currentRequest!.guestId,
+                          snippet: currentRequest!.timestampBegin.toString(),
                         ),
                       ),
                     },
@@ -142,7 +214,7 @@ class _MobileUnitScreenState extends State<MobileUnitScreen> {
             Text(
               mobileUnit.isAvailable
                   ? "✅ Einsatzbereit"
-                  : "🚫 Im Einsatz",
+                  : "${currentRequest!.guestId} – vor ${_timeAgo(currentRequest!.timestampBegin!)}",
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
 
@@ -196,7 +268,7 @@ class _MobileUnitScreenState extends State<MobileUnitScreen> {
                   minimumSize: const Size(double.infinity, 50),
                 ),
                 onPressed: () async {
-                  await ActivityManager().closeMobileUnitRequest(currentRequest!.id);
+                  await _finishRequest();
                   setState(() => currentRequest = null);
                 },
               ),

@@ -1,4 +1,7 @@
+import 'package:kneipentour/config/location_config.dart';
 import 'package:kneipentour/data/activity_manager.dart';
+import 'package:kneipentour/data/guest_manager.dart';
+import 'package:kneipentour/data/pub_manager.dart';
 
 import '../models/achievement.dart';
 
@@ -48,8 +51,27 @@ class AchievementData {
       iconPath: 'assets/icons/achievements/bonus.png',
       trigger: AchievementEventType.drink,
       condition: (guestId) async {
-        final acts = await ActivityManager().getGuestActivities(guestId, action: 'check-in');
-        return acts.isNotEmpty;
+        // Alle Drink Activities laden
+        final drinks = await ActivityManager().getGuestActivities(guestId, action: 'drink');
+        if (drinks.isEmpty) return false;
+
+        // Drinks pro Kneipe zählen
+        final Map<String, int> counts = {};
+        for (final d in drinks) {
+          counts[d.pubId] = (counts[d.pubId] ?? 0) + 1;
+        }
+
+        // Bonusdrinks berechnen:
+        // pro Kneipe: alles > 2 zählen als Bonus
+        int bonus = 0;
+        for (final count in counts.values) {
+          if (count > 2) {
+            bonus += (count - 2);
+          }
+        }
+
+        print("🎁 Bonusdrinks für $guestId: $bonus");
+        return bonus >= 5;
       },
     ),
     Achievement(
@@ -73,7 +95,7 @@ class AchievementData {
       iconPath: 'assets/icons/mobile.png',
       trigger: AchievementEventType.requestMobileUnit,
       condition: (guestId) async {
-        final acts = await ActivityManager().getGuestActivities(guestId, action: 'check-in');
+        final acts = await ActivityManager().getGuestActivities(guestId, action: 'request_mobile');
         return acts.isNotEmpty;
       },
     ),
@@ -208,18 +230,33 @@ class AchievementData {
       hidden: true,
       trigger: AchievementEventType.locationUpdate,
       condition: (guestId) async {
-        final acts = await ActivityManager().getGuestActivities(guestId, action: 'check-in');
 
-        final now = DateTime.now();
+        // 2. Gastposition holen
+        final guest = await GuestManager().getGuest(guestId);
+        if (guest == null || guest.latitude == 0 || guest.longitude == 0) return false;
 
-        // Nur prüfen, wenn es nach 2 Uhr ist
-        if (now.hour < 2 && now.hour>8) return false;
+        final guestLat = guest.latitude;
+        final guestLng = guest.longitude;
 
-        // Finde offene Check-ins (kein timestampEnd gesetzt)
-        final openCheckIns = acts.where((a) => a.timestampEnd == null);
+        // 3. Alle Kneipen holen
+        final pubs = PubManager().allPubs;
+        if (pubs.isEmpty) return false;
 
-        // Erfolg, wenn mind. ein offener Check-in existiert
-        return openCheckIns.isNotEmpty;
+        // 4. Distanz zur *nächsten* Kneipe berechnen
+        double minDistance = double.infinity;
+
+        for (final pub in pubs) {
+          final d = LocationConfig.calculateDistance(
+            guestLat, guestLng,
+            pub.latitude, pub.longitude,
+          );
+          if (d < minDistance) minDistance = d;
+        }
+
+        print("🌲 Distanz zur nächsten Kneipe (untwegs): ${minDistance.toStringAsFixed(1)}m");
+
+        // 5. Threshold (z. B. > 200m)
+        return minDistance > 200;
       },
     ),
   ];

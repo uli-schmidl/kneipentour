@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:kneipentour/config/location_config.dart';
+import 'package:kneipentour/data/activity_manager.dart';
 import 'package:kneipentour/models/achievement.dart';
 import 'package:kneipentour/models/challenge.dart';
 import 'package:kneipentour/data/session_manager.dart';
@@ -16,8 +17,6 @@ class ChallengeManager {
   final List<Challenge> _activeChallenges = [];
   StreamSubscription? _challengeListener;
 
-  final FlutterLocalNotificationsPlugin _notificationsPlugin =
-  FlutterLocalNotificationsPlugin();
 
   void startListening() {
     _challengeListener?.cancel();
@@ -43,7 +42,7 @@ class ChallengeManager {
         for (var change in snapshot.docChanges) {
           if (change.type == DocumentChangeType.added) {
             final newChallenge = Challenge.fromMap(change.doc.data()!, change.doc.id);
-            await _notifyEligibleGuests(newChallenge);
+            await notifyEligibleGuests(newChallenge);
           }
         }
       }
@@ -63,22 +62,22 @@ class ChallengeManager {
     final guest = await GuestManager().getGuest(guestId);
     if (guest == null) return false;
 
-    switch (c.conditionType) {
-      case ChallengeConditionType.allGuests:
+    switch (c.eligibleType) {
+      case EligibleType.allGuests:
         return true;
 
-      case ChallengeConditionType.checkedInGuests:
+      case EligibleType.checkedInGuests:
         return await GuestManager().isGuestCheckedIn(guestId);
 
-      case ChallengeConditionType.inSpecificPub:
+      case EligibleType.inSpecificPub:
         final currentPub = await GuestManager().getCurrentPubId(guestId);
         return currentPub == c.targetPubId;
 
-      case ChallengeConditionType.minDrinks:
+      case EligibleType.minDrinks:
         final drinks = guest.drinks;
         return drinks.length >= (c.minDrinks ?? 0);
 
-      case ChallengeConditionType.hasAchievement:
+      case EligibleType.hasAchievement:
         Achievement? ach;
         try {
           ach = AchievementManager().achievements
@@ -87,41 +86,24 @@ class ChallengeManager {
           ach = null;
         }
         return ach?.unlocked ?? false;
+      case EligibleType.notCheckedInGuest:
+        return await GuestManager().isGuestCheckedIn(guestId)==false;
+
     }
   }
 
-  /// 📢 Sendet Benachrichtigung an alle berechtigten Gäste
-  Future<void> _notifyEligibleGuests(Challenge challenge) async {
-    print("📣 Neue Challenge gestartet: ${challenge.title}");
-
-    final guests = await GuestManager().getAllGuests();
-
-    for (var guest in guests) {
+  Future<void> notifyEligibleGuests(Challenge challenge) async {
+    final guests = await GuestManager().getAllGuests(); // wir haben das schon
+    for (final guest in guests) {
       final eligible = await isEligible(challenge, guest);
-      if (!eligible) continue;
-
-      await _showNotification(guest.name, challenge.title, challenge.description);
+      if (eligible) {
+        await ActivityManager().sendPushToGuest(
+          guestId: guest.id,
+          title: "🔥 Neue Challenge gestartet!",
+          message: challenge.title,
+        );
+      }
     }
-  }
-
-  Future<void> _showNotification(
-      String guestName, String title, String description) async {
-    const androidDetails = AndroidNotificationDetails(
-      'challenge_channel',
-      'Challenges',
-      channelDescription: 'Benachrichtigungen zu neuen Challenges',
-      importance: Importance.high,
-      priority: Priority.high,
-    );
-
-    const details = NotificationDetails(android: androidDetails);
-
-    await _notificationsPlugin.show(
-      guestName.hashCode,
-      '🎯 Neue Challenge gestartet!',
-      '$title – $description',
-      details,
-    );
   }
 
 
@@ -151,17 +133,124 @@ class ChallengeManager {
   }
 
   /// Admin: Challenge aktivieren/deaktivieren
-  Future<void> toggleChallenge(String id, bool activate, {int durationMinutes = 60}) async {
+  Future<void> toggleChallenge(Challenge id, bool activate, {int durationMinutes = 60}) async {
     final now = Timestamp.now();
     final end = activate
         ? Timestamp.fromDate(now.toDate().add(Duration(minutes: durationMinutes)))
         : null;
 
-    await FirebaseFirestore.instance.collection('challenges').doc(id).update({
+    await FirebaseFirestore.instance.collection('challenges').doc(id.id).update({
       'isActive': activate,
       'startTime': activate ? now : null,
       'endTime': end,
     });
+    if (activate) {
+      // 🆕 Startpub pro Gast speichern
+      final guests = await GuestManager().getAllGuests();
+      for (final g in guests) {
+        final pubId = await GuestManager().getCurrentPubId(g.id);
+        if (pubId != null) {
+          FirebaseFirestore.instance.collection('challengeStartPub').doc("${id}_${g.id}").set({
+            'challengeId': id,
+            'guestId': g.id,
+            'startPubId': pubId,
+          });
+        }
+        final eligible = await isEligible(id, g);
+        if (eligible) {
+          await FirebaseFirestore.instance
+              .collection('challenges')
+              .doc(id.id)
+              .collection('participants')
+              .doc(g.id)
+              .set({
+            'guestId': g.id,
+            'joinedAt': Timestamp.now(),
+          });
+
+          print("✅ Teilnehmer gespeichert: ${g.name}");
+        }
+      }
+    }
     print("⚙️ Challenge ${activate ? 'aktiviert' : 'deaktiviert'}: $id");
+
   }
+
+  Future<bool> hasReachedLocation(String guestId, double targetLat, double targetLon, double radius) async {
+    final guest = await GuestManager().getGuest(guestId);
+    if (guest == null) return false;
+
+    final dist = LocationConfig.calculateDistance(
+      guest.latitude,
+      guest.longitude,
+      targetLat,
+      targetLon,
+    );
+
+    return dist <= radius;
+  }
+
+  Future<bool> isParticipant(String challengeId, String guestId) async {
+    final doc = await FirebaseFirestore.instance
+        .collection('challenges')
+        .doc(challengeId)
+        .collection('participants')
+        .doc(guestId)
+        .get();
+    return doc.exists;
+  }
+
+  /// Wird bei Standort- oder Aktivitätsänderungen aufgerufen
+  Future<void> evaluateProgress(String guestId) async {
+    if (_activeChallenges.isEmpty) return;
+
+    final guest = await GuestManager().getGuest(guestId);
+    if (guest == null) return;
+
+    for (final c in activeChallenges) {
+      // ⏳ Ist Challenge noch aktiv?
+      if (c.isExpired) continue;
+      if(await isParticipant(c.id, guest.id)==false) continue;
+      switch(c.id){
+      case "photo_event":
+            final reached = await hasReachedLocation(
+              guestId,
+              LocationConfig.ffwHaus.latitude,
+              LocationConfig.ffwHaus.longitude,
+              35,
+            );
+
+            if (reached) {
+              await completeChallenge(c.id, guestId);
+              print("📸 $guestId hat Fototermin Challenge abgeschlossen!");
+            }
+          break;
+
+        case "drink_3":
+        // z. B. Challenge gilt nur solange man eingecheckt ist → TODO falls benötigt
+          break;
+
+        case "pub_switch":
+          final currentPub = await GuestManager().getCurrentPubId(guestId);
+          if (currentPub == null) return;
+
+          final startDoc = await FirebaseFirestore.instance
+              .collection('challengeStartPub')
+              .doc("${c.id}_$guestId")
+              .get();
+
+          if (!startDoc.exists) return;
+
+          final startPubId = startDoc.data()?['startPubId'];
+
+          // ✅ Challenge erfüllt, wenn Gast in andere Kneipe eingecheckt hat
+          if (startPubId != null && currentPub != startPubId) {
+            await completeChallenge(c.id, guestId);
+            print("🍻 Pub-Wechsel-Challenge erfüllt von $guestId");
+          }
+          break;
+      }
+    }
+  }
+
 }
