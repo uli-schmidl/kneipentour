@@ -9,14 +9,14 @@ import 'package:kneipentour/data/session_manager.dart';
 import 'package:kneipentour/data/sync_manager.dart';
 import 'screens/start_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart'; // wird automatisch erstellt
+import 'firebase_options.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 FlutterLocalNotificationsPlugin();
 
 void main() async{
   WidgetsFlutterBinding.ensureInitialized();
-  ConnectionService().startMonitor();
+  ConnectionService().initialize();
   SessionManager().startLocationUpdates();
   const AndroidInitializationSettings androidInit =
   AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -50,8 +50,9 @@ void main() async{
     );
   });
 
-  Connectivity().onConnectivityChanged.listen((status) async {
-    if (status != ConnectivityResult.none) {
+  Connectivity().onConnectivityChanged.listen((results) async {
+    final isOnline = results.isNotEmpty && !results.contains(ConnectivityResult.none);
+    if (isOnline) {
       await SyncManager.processPendingActions();
     }
   });
@@ -59,8 +60,6 @@ void main() async{
 
   runApp(const KneipentourApp());
 }
-
-
 
 class KneipentourApp extends StatelessWidget {
   const KneipentourApp({super.key});
@@ -134,21 +133,7 @@ class KneipentourApp extends StatelessWidget {
           elevation: 2,
           shadowColor: Colors.black45,
         ),
-
-        // 🧑‍🎤 Text Styles
-     //   textTheme: const TextTheme(
-     //     bodyMedium: TextStyle(color: Colors.white70, fontSize: 16),
-     //     titleLarge: TextStyle(
-     //         color: Colors.orangeAccent,
-     //         fontSize: 20,
-     //         fontWeight: FontWeight.bold),
-     //     headlineSmall: TextStyle(
-     //         color: Colors.white,
-     //         fontSize: 22,
-     //         fontWeight: FontWeight.bold),
-     //   ),
       ),
-
       home: const StartScreen(),
     );
   }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:kneipentour/data/pub_manager.dart';
 import 'package:kneipentour/models/pending_action.dart';
+import 'package:kneipentour/models/pub.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:kneipentour/data/pending_action_manager.dart';
 import 'package:kneipentour/data/session_manager.dart';
@@ -17,22 +19,31 @@ class QrCheckinScreen extends StatelessWidget {
       if (parts.length != 3) throw Exception("Ungültiges Format");
 
       final pubId = parts[0];
-      final pubLat = double.tryParse(parts[1]) ?? 0;
-      final pubLon = double.tryParse(parts[2]) ?? 0;
+      final pubLat = double.tryParse(parts[1]);
+      final pubLon = double.tryParse(parts[2]);
       final guestId = SessionManager().guestId;
 
-      /// ✅ Aktuelle Position abrufen
+      /// ✅ Position optional
       final loc = SessionManager().lastKnownLocation.value;
-      final deviceLat = loc?.latitude ?? 0;
-      final deviceLon = loc?.longitude ?? 0;
+      final deviceLat = loc?.latitude;
+      final deviceLon = loc?.longitude;
 
-      /// ✅ Distanz prüfen
-      final distance = LocationConfig.calculateDistance(deviceLat, deviceLon, pubLat, pubLon);
-      if (distance > 60) { // 60m Toleranz
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("📍 Du bist zu weit entfernt (${distance.round()} m)")),
+      /// 👉 Distanz *nur prüfen, wenn Position verfügbar ist*
+      if (deviceLat != null && deviceLon != null && pubLat != null && pubLon != null) {
+        final distance = LocationConfig.calculateDistance(
+          deviceLat, deviceLon,
+          pubLat, pubLon,
         );
-        return;
+
+        if (distance > 80) {
+          // ⚠️ Nur Hinweis — KEIN Blocker!
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("ℹ️ Standort weicht ab (${distance.round()} m) – trotzdem Check-in okay."),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
 
       /// ✅ Online prüfen
@@ -40,34 +51,42 @@ class QrCheckinScreen extends StatelessWidget {
       final online = connectivity != ConnectivityResult.none;
 
       if (online) {
-        /// Direkter Check-in
+        /// Online → direkt Check-in
         await ActivityManager().checkInGuest(
           guestId: guestId,
           pubId: pubId,
-          latitude: deviceLat,
-          longitude: deviceLon,
+          latitude: deviceLat ?? 0,
+          longitude: deviceLon ?? 0,
         );
 
-        Navigator.pop(context);
+        if (context.mounted) Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("✅ Erfolgreich eingecheckt!")),
+          SnackBar(content: Text("✅ Eingecheckt in ${PubManager().getPubName(pubId)}")),
         );
       } else {
-        /// Offline → PendingAction speichern
+        //Kann nicht null sein
+        Pub? toPub = PubManager().getPubById(pubId);
+        if (toPub == null){
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("❌ Ungültiger QR-Code")),
+          );
+          return;
+        }
+    /// Offline → in Pending Queue speichern
         await PendingActionManager.add(
           PendingAction(
             type: "check-in",
             guestId: guestId,
             pubId: pubId,
-            latitude: deviceLat,
-            longitude: deviceLon,
+            latitude: toPub.latitude,
+            longitude: toPub.longitude,
             timestamp: DateTime.now(),
           ),
         );
 
-        Navigator.pop(context);
+        if (context.mounted) Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("📦 Offline gespeichert – wird synchronisiert.")),
+          const SnackBar(content: Text("📦 Offline gespeichert – wird später synchronisiert")),
         );
       }
     } catch (e) {
@@ -76,6 +95,7 @@ class QrCheckinScreen extends StatelessWidget {
       );
     }
   }
+
 
   @override
   Widget build(BuildContext context) {

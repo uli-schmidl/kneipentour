@@ -95,6 +95,9 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
         isCheckedIn = true;
         currentCheckedInPubId = widget.pub.id;
       });
+
+      // 🔙 HomeScreen signalisieren: es gab eine Änderung
+      if (mounted) Navigator.pop(context, {'changed': true, 'action': 'checkin', 'pubId': widget.pub.id});
     }
   }
 
@@ -102,10 +105,16 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
 
   void _handleCheckOut() async {
     await widget.onCheckOut(widget.guestId, widget.pub.id);
+
+    SessionManager().currentPubId.value = null; // 🔔 global leeren
+
     setState(() {
       isCheckedIn = false;
       currentCheckedInPubId = '';
     });
+
+// 🔙 Änderung melden
+    if (mounted) Navigator.pop(context, {'changed': true, 'action': 'checkout', 'pubId': widget.pub.id});
   }
 
   @override

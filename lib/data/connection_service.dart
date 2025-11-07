@@ -1,18 +1,21 @@
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
 
 class ConnectionService {
   static final ConnectionService _instance = ConnectionService._internal();
   factory ConnectionService() => _instance;
   ConnectionService._internal();
 
-  final _controller = StreamController<bool>.broadcast();
-  Stream<bool> get connectivityStream => _controller.stream;
+  final StreamController<bool> _statusController = StreamController<bool>.broadcast();
 
-  void startMonitor() {
-    Connectivity().onConnectivityChanged.listen((status) {
-      final connected = status != ConnectivityResult.none;
-      _controller.add(connected);
+  /// Stream für UI (true = online, false = offline)
+  Stream<bool> get connectivityStream => _statusController.stream;
+
+  /// Startet Live-Monitoring (keine startMonitor() mehr!)
+  void initialize() {
+    Connectivity().onConnectivityChanged.listen((results) {
+      final isOnline = results.isNotEmpty && !results.contains(ConnectivityResult.none);
+      _statusController.add(isOnline);
     });
   }
 }

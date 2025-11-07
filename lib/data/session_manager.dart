@@ -1,4 +1,3 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:kneipentour/data/achievement_manager.dart';
 import 'package:kneipentour/data/challenge_manager.dart';
@@ -70,27 +69,28 @@ class SessionManager {
   }
 
   Future<void> startLocationUpdates() async {
-      final permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) return;
-
-      Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 10, // alle 10m
-        ),
-      ).listen((pos) {
-        print("Location changed! $pos");
-        lastKnownLocation.value = pos;
-        if(_guestId==null || guestId.isEmpty) return;
-        AchievementManager().notifyAction(
-          AchievementEventType.locationUpdate,
-          _guestId!,
-        );
-
-// 🎯 Challenges prüfen
-        ChallengeManager().evaluateProgress(_guestId!);
-      });
+    final permission = await Geolocator.requestPermission();
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return;
     }
 
+    Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10, // alle 10m
+      ),
+    ).listen((pos) {
+      print("Location changed! $pos");
+      lastKnownLocation.value = pos;
+      if(_guestId==null || guestId.isEmpty) return;
+      AchievementManager().notifyAction(
+        AchievementEventType.locationUpdate,
+        _guestId!,
+      );
+
+// 🎯 Challenges prüfen
+      ChallengeManager().evaluateProgress(_guestId!);
+    });
   }
+}

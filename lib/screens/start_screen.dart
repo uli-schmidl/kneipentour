@@ -53,8 +53,8 @@ class _StartScreenState extends State<StartScreen> {
       print("🔁 Nutzer gefunden: $savedName – warte auf Standort...");
 
       // Wir warten kurz die erste Standortbestimmung ab
-      _locationListener = () {
-        if (!mounted) return; // ✅ verhindert Crash
+      _locationListener = () async {
+        if (!mounted) return;
 
         final pos = SessionManager().lastKnownLocation.value;
         if (pos == null) return;
@@ -68,10 +68,28 @@ class _StartScreenState extends State<StartScreen> {
 
         final within = distance <= LocationConfig.allowedRadius;
 
+        // 🟢 Status aktualisieren
         if (within != _isWithinAllowedArea) {
           setState(() => _isWithinAllowedArea = within);
         }
+
+        // ✅ Wenn innerhalb → automatisch Login durchführen
+        if (within) {
+          final prefs = await SharedPreferences.getInstance();
+          final savedName = prefs.getString('guestName');
+          if (savedName != null) {
+            print("✅ Innerhalb → automatischer Login als $savedName");
+
+            SessionManager().initGuest(guestId: savedName, name: savedName);
+
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => HomeScreen(userName: savedName)),
+            );
+          }
+        }
       };
+
 
       SessionManager().lastKnownLocation.addListener(_locationListener!);
 

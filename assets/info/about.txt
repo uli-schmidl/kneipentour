@@ -8,5 +8,5 @@ Release notes:
 - Radius check, nur wer im Kneipen-Gebiet ist, darf die App verwenden
 - Rang-System - je mehr man trinkt, desto höher der Rang
 - Challenges eingeführt, Admins können Challenges starten, die bestimmte Gäste erfüllen müssen
-- diverse Bugfixes, Performance-Optimierungen
--
+- Wirt- und Adminbereich angepasst, Accounts angelegt
+- Asynchrones Checkin/Trinken, wenn kein Internet (inkl. QR-Code)
