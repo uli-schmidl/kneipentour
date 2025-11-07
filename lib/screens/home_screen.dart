@@ -558,13 +558,8 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
     final LatLng startPos;
-    if (pos == null)
-    {
-      // 🧭 Fallback: FFW-Haus
-      startPos = const LatLng(49.4521, 11.0767);
-    } else {
+
       startPos = LatLng(_currentLocation!.latitude, _currentLocation!.longitude);
-    }
 
 
     const String darkMapStyle = '''
@@ -585,9 +580,7 @@ class _HomeScreenState extends State<HomeScreen> {
 ''';
    // {"featureType": "building", "elementType": "geometry.fill", "stylers": [{"color": "#303030"}]},
    // {"featureType": "building", "elementType": "geometry.stroke", "stylers": [{"color": "#383838"}]}
-    if (pos == null) {
-      return Center(child: CircularProgressIndicator());
-    }
+
     return GoogleMap(
       initialCameraPosition: CameraPosition(target: startPos, zoom: 15
       ),
