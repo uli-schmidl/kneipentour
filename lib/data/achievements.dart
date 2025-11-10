@@ -45,6 +45,19 @@ class AchievementData {
 
     ),
     Achievement(
+      id: 'all_pubs',
+      title: 'Absolvent ',
+      description: 'Alle Kneipen besucht.',
+      iconPath: 'assets/icons/achievements/pubs.png',
+      trigger: AchievementEventType.checkIn,
+      condition: (guestId) async {
+        final acts = await ActivityManager().getGuestActivities(guestId, action: 'check-in');
+        final uniquePubs = acts.map((a) => a.pubId).toSet();
+        return uniquePubs.length >= 6;
+      },
+
+    ),
+    Achievement(
       id: 'bonus_master',
       title: 'Nimmersatt 🍺🍺🍺🍺🍺',
       description: 'Mehr als 5 Bonusdrinks gesammelt.',
@@ -100,16 +113,15 @@ class AchievementData {
       },
     ),
     Achievement(
-      id: 'biker',
-      title: 'Biker ',
-      description: 'Freedom Riders besucht.',
-      iconPath: 'assets/icons/achievements/bike.png',
-      trigger: AchievementEventType.checkIn,
+      id: 'pflegefall',
+      title: 'Pflegefall 🚨',
+      description: 'Mobile Einheit 2x angefordert.',
+      iconPath: 'assets/icons/mobile.png',
+      trigger: AchievementEventType.requestMobileUnit,
       condition: (guestId) async {
-        final acts = await ActivityManager().getGuestActivities(guestId, action: 'check-in');
-        return acts.any((a) => a.pubId=='gmjsY6aLm2h7Z9lxeWDO');
+        final acts = await ActivityManager().getGuestActivities(guestId, action: 'request_mobile');
+        return acts.isNotEmpty && acts.length>1;
       },
-
     ),
     Achievement(
       id: 'glotzer',
@@ -183,7 +195,7 @@ class AchievementData {
       trigger: AchievementEventType.checkIn,
       condition: (guestId) async {
         final acts = await ActivityManager().getGuestActivities(guestId, action: 'check-in');
-        return acts.any((a) => (a.timestampBegin?.hour ?? 22) < 20);
+        return acts.any((a) => (a.timestampBegin?.hour ?? 22) < 20 && (a.timestampBegin?.hour ?? 22) > 17);
       },
 
     ),
@@ -213,7 +225,7 @@ class AchievementData {
         final now = DateTime.now();
 
         // Nur prüfen, wenn es nach 2 Uhr ist
-        if (now.hour < 2 && now.hour>8) return false;
+        if (now.hour > 2 && now.hour<5) return false;
 
         // Finde offene Check-ins (kein timestampEnd gesetzt)
         final openCheckIns = acts.where((a) => a.timestampEnd == null);
@@ -230,7 +242,10 @@ class AchievementData {
       hidden: true,
       trigger: AchievementEventType.locationUpdate,
       condition: (guestId) async {
-
+        final acts = await ActivityManager().getGuestActivities(guestId, action: 'check-in');
+        if(acts.isEmpty){
+          return false;
+        }
         // 2. Gastposition holen
         final guest = await GuestManager().getGuest(guestId);
         if (guest == null || guest.latitude == 0 || guest.longitude == 0) return false;
@@ -255,8 +270,34 @@ class AchievementData {
 
         print("🌲 Distanz zur nächsten Kneipe (untwegs): ${minDistance.toStringAsFixed(1)}m");
 
-        // 5. Threshold (z. B. > 200m)
-        return minDistance > 200;
+        // 5. Threshold
+        return minDistance > 250;
+      },
+    ),
+    Achievement(
+      id: 'kaerwa',
+      title: 'Kerwageil',
+      description: 'Du warst in Lettenmühle am Kerwastodel.',
+      iconPath: 'assets/icons/achievements/hock.png',
+      hidden: true,
+      trigger: AchievementEventType.locationUpdate,
+      condition: (guestId) async {
+        final acts = await ActivityManager().getGuestActivities(guestId, action: 'check-in');
+        if(acts.isEmpty){
+          return false;
+        }
+        // 2. Gastposition holen
+        final guest = await GuestManager().getGuest(guestId);
+        if (guest == null || guest.latitude == 0 || guest.longitude == 0) return false;
+
+        final guestLat = guest.latitude;
+        final guestLng = guest.longitude;
+
+          final d = LocationConfig.calculateDistance(
+            guestLat, guestLng,
+            LocationConfig.kaerwaStodl.latitude, LocationConfig.kaerwaStodl.longitude,
+          );
+          return d<30;
       },
     ),
   ];
