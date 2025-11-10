@@ -34,32 +34,32 @@ class _RankingScreenState extends State<RankingScreen> {
       }
 
       // Testweise nur die ersten 5 Gäste abrufen
-      final limitedGuests = guests.take(5).toList();
+      final limitedGuests = guests.take(10).toList();
 
       final futures = limitedGuests.map((guest) async {
-        print("🔍 Prüfe Gast: ${guest.name}");
+        print("🔍 Prüfe Gast: ${guest.id}");
 
         try {
           final drinks = await ActivityManager()
               .getGuestActivities(guest.id, action: 'drink')
               .timeout(const Duration(seconds: 3), onTimeout: () {
-            print("⏰ Timeout bei ${guest.name}");
+            print("⏰ Timeout bei ${guest.id}");
             return [];
           });
 
           final count = drinks.length;
-          print("🍺 ${guest.name} → $count Drinks");
+          print("🍺 ${guest.id} → $count Drinks");
           final rank = RankManager().getRankForDrinks(count);
 
           return _GuestRankEntry(
-            guestName: guest.name,
+            guestName: guest.id,
             drinkCount: count,
             rank: rank,
           );
         } catch (e) {
-          print("⚠️ Fehler bei ${guest.name}: $e");
+          print("⚠️ Fehler bei ${guest.id}: $e");
           return _GuestRankEntry(
-            guestName: guest.name,
+            guestName: guest.id,
             drinkCount: 0,
             rank: RankManager().getRankForDrinks(0),
           );
@@ -76,49 +76,6 @@ class _RankingScreenState extends State<RankingScreen> {
 
     return entries;
   }
-
-
-
-  /*Future<List<_GuestRankEntry>> _loadRankingSnapshot() async {
-    final guests = await GuestManager().getAllGuests();
-
-    // Wenn keine Gäste vorhanden sind
-    if (guests.isEmpty) return [];
-
-    // 🔹 Parallele Abfragen (statt nacheinander!)
-    final futures = guests.map((guest) async {
-      try {
-        // Hole alle 'drink'-Einträge parallel
-        final drinks = await ActivityManager()
-            .getGuestActivities(guest.id, action: 'drink')
-            .timeout(const Duration(seconds: 5), onTimeout: () => []);
-
-        final count = drinks.length;
-        final rank = RankManager().getRankForDrinks(count);
-
-        return _GuestRankEntry(
-          guestName: guest.name,
-          drinkCount: count,
-          rank: rank,
-        );
-      } catch (e) {
-        print("⚠️ Fehler bei ${guest.name}: $e");
-        return _GuestRankEntry(
-          guestName: guest.name,
-          drinkCount: 0,
-          rank: RankManager().getRankForDrinks(0),
-        );
-      }
-    }).toList();
-
-    // 🔹 Warte auf alle Futures gleichzeitig
-    final entries = await Future.wait(futures);
-
-    // 🔹 Sortieren nach Anzahl der Drinks
-    entries.sort((a, b) => b.drinkCount.compareTo(a.drinkCount));
-
-    return entries;
-  }*/
 
   @override
   Widget build(BuildContext context) {

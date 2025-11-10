@@ -144,7 +144,6 @@ class GuestManager {
       final data = doc.data();
       return Guest(
         id: data['guestId'] ?? doc.id,
-        name: data['name'] ?? 'Unbekannt',
         latitude: (data['latitude'] ?? 0).toDouble(),
         longitude: (data['longitude'] ?? 0).toDouble(),
         drinks: (data['drinks'] ?? <Drink>[]),

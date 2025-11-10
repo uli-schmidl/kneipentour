@@ -409,17 +409,29 @@ class ActivityManager {
   }
 
   Future<void> clearAllActivities() async {
-    final db = FirebaseFirestore.instance;
+    final batch = FirebaseFirestore.instance.batch();
+    final snapshots = await FirebaseFirestore.instance
+        .collection('activities').get();
 
-    final batch = db.batch();
+    for (var doc in snapshots.docs) {
+      batch.delete(doc.reference);
+    }
 
-  final snap = await db.collection('activities').get();
-  for (var doc in snap.docs) {
-  batch.delete(doc.reference);
-  }
+    await batch.commit();
 
-  await batch.commit();
-  print("🔥 Alle Bewegungsdaten gelöscht.");
+    // 🔹 Dummy-Eintrag direkt neu anlegen
+    await FirebaseFirestore.instance
+        .collection('activities').add({
+      'action': 'none',
+      'guestId': 'system',
+      'pubId': null,
+      'timestampBegin': DateTime.now(),
+      'timestampEnd': null,
+      'latitude': 0,
+      'longitude': 0,
+    });
+
+    print("✅ Activities geleert & Dummy neu erstellt");
   }
 
 

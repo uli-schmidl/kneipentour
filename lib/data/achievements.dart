@@ -117,6 +117,7 @@ class AchievementData {
       title: 'Pflegefall 🚨',
       description: 'Mobile Einheit 2x angefordert.',
       iconPath: 'assets/icons/mobile.png',
+      hidden: true,
       trigger: AchievementEventType.requestMobileUnit,
       condition: (guestId) async {
         final acts = await ActivityManager().getGuestActivities(guestId, action: 'request_mobile');

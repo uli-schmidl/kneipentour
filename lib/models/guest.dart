@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 class Guest {
   final String id;
-  final String name;
   double latitude;
   double longitude;
   DateTime lastUpdated;
@@ -11,7 +10,6 @@ class Guest {
 
   Guest({
     required this.id,
-    required this.name,
     required this.latitude,
     required this.longitude,
     required this.lastUpdated,
@@ -22,7 +20,6 @@ class Guest {
   factory Guest.fromMap(Map<String, dynamic> data, String id) {
     return Guest(
       id: id,
-      name: data['name'] ?? 'Gast',
       latitude: (data['latitude'] ?? 0).toDouble(),
       longitude: (data['longitude'] ?? 0).toDouble(),
       lastUpdated: (data['lastUpdated'] as Timestamp?)?.toDate() ?? DateTime.now(),
@@ -37,7 +34,7 @@ class Guest {
 
   Map<String, dynamic> toMap() {
     return {
-      'name': name,
+      'id': id,
       'latitude': latitude,
       'longitude': longitude,
       'lastUpdated': Timestamp.fromDate(lastUpdated),

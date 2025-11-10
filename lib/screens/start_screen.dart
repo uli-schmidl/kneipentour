@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/screens/home_screen.dart';
 import 'login_screen.dart';
+import 'package:geolocator/geolocator.dart';
 import 'dart:math';
 
 class StartScreen extends StatefulWidget {
@@ -27,6 +28,7 @@ class _StartScreenState extends State<StartScreen> {
   @override
   void initState() {
     super.initState();
+    _startLocationWatcher(); // <-- immer starten!
     _checkExistingUser();
     _generateRandomName();
   }
@@ -41,64 +43,63 @@ class _StartScreenState extends State<StartScreen> {
   }
 
 
-    Future<void> _checkExistingUser() async {
-    // 🔹 Location Listener starten
-    _startLocationWatcher();
-
+  Future<void> _checkExistingUser() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedName = prefs.getString('guestName');
+    final savedName = prefs.getString('guestId');
 
-    if (savedName != null) {
-      // ✅ Nutzer ist bekannt → direkt einloggen, aber erst wenn im erlaubten Gebiet
-      print("🔁 Nutzer gefunden: $savedName – warte auf Standort...");
-
-      // Wir warten kurz die erste Standortbestimmung ab
-      _locationListener = () async {
-        if (!mounted) return;
-
-        final pos = SessionManager().lastKnownLocation.value;
-        if (pos == null) return;
-
-        final distance = LocationConfig.calculateDistance(
-          pos.latitude,
-          pos.longitude,
-          LocationConfig.centerPoint.latitude,
-          LocationConfig.centerPoint.longitude,
-        );
-
-        final within = distance <= LocationConfig.allowedRadius;
-
-        // 🟢 Status aktualisieren
-        if (within != _isWithinAllowedArea) {
-          setState(() => _isWithinAllowedArea = within);
-        }
-
-        // ✅ Wenn innerhalb → automatisch Login durchführen
-        if (within) {
-          final prefs = await SharedPreferences.getInstance();
-          final savedName = prefs.getString('guestName');
-          if (savedName != null) {
-            print("✅ Innerhalb → automatischer Login als $savedName");
-
-            SessionManager().initGuest(guestId: savedName, name: savedName);
-
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (_) => HomeScreen(userName: savedName)),
-            );
-          }
-        }
-      };
-
-
-      SessionManager().lastKnownLocation.addListener(_locationListener!);
-
+    // Falls kein gespeicherter Nutzer → keine Auto-Login-Logik
+    if (savedName == null) {
+      setState(() => _loading = false);
+      return;
     }
 
-    setState(() => _loading = false);
+    print("🔁 Nutzer gefunden: $savedName – warte auf Standort...");
+
+    // ✅ Auf ersten gültigen Standort warten (max 8 Sekunden)
+    Position? pos;
+    for (int i = 0; i < 16; i++) { // 16 × 0.5s = 8 Sekunden
+      pos = SessionManager().lastKnownLocation.value;
+      if (pos != null) break;
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    if (pos == null) {
+      print("⚠️ Kein Standort verfügbar → Benutzer muss manuell starten");
+      setState(() => _loading = false);
+      /// ✅ Falls Standort bereits da → direkt prüfen
+      _maybeNavigateToHome();
+
+      return;
+    }
+
+    final distance = LocationConfig.calculateDistance(
+      pos.latitude,
+      pos.longitude,
+      LocationConfig.centerPoint.latitude,
+      LocationConfig.centerPoint.longitude,
+    );
+
+    final within = distance <= LocationConfig.allowedRadius;
+    setState(() => _isWithinAllowedArea = within);
+
+    if (!within) {
+      print("🚫 Nutzer ist außerhalb → kein Auto-Login");
+      setState(() => _loading = false);
+      return;
+    }
+
+    // ✅ Auto-Login jetzt sauber möglich
+    SessionManager().initGuest(guestId: savedName);
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => HomeScreen(userName: savedName)),
+    );
   }
 
+
   void _startLocationWatcher() {
+    print("📡 Location Listener aktiv");
     SessionManager().lastKnownLocation.addListener(() {
       final pos = SessionManager().lastKnownLocation.value;
       if (pos == null) return;
@@ -111,11 +112,31 @@ class _StartScreenState extends State<StartScreen> {
       );
 
       final within = distance <= LocationConfig.allowedRadius;
+
       if (within != _isWithinAllowedArea) {
         print("📍 Radiusänderung → innerhalb: $within");
         setState(() => _isWithinAllowedArea = within);
       }
+
+      // ✅ HIER → automatische Weiterleitung, wenn möglich
+      _maybeNavigateToHome();
     });
+  }
+
+
+  void _maybeNavigateToHome() {
+    if (!_isWithinAllowedArea) return;
+
+    final prefs = SessionManager().guestId;
+    if (SessionManager().guestId.isEmpty) return;
+
+    // ✅ verhindern, dass mehrmals navigiert wird
+    if (!mounted) return;
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => HomeScreen(userName: SessionManager().guestId)),
+    );
   }
 
 
@@ -151,9 +172,8 @@ class _StartScreenState extends State<StartScreen> {
     await GuestManager().createOrUpdateGuest(name, name);
 
     // 🔹 Lokal speichern
-    await prefs.setString('guestName', name);
     await prefs.setString('guestId', name);
-    SessionManager().initGuest(guestId: name, name: name);
+    SessionManager().initGuest(guestId: name);
 
     // 🔹 Weiter zur HomeScreen
     Navigator.pushReplacement(

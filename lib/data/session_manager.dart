@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:kneipentour/data/achievement_manager.dart';
 import 'package:kneipentour/data/challenge_manager.dart';
+import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/models/achievement.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
@@ -36,9 +37,8 @@ class SessionManager {
     _userName = name;
   }
 
-  void initGuest({required String guestId, required String name}) {
+  void initGuest({required String guestId}) {
     _guestId = guestId;
-    _userName = name;
   }
 
   // ==== Reset ====
@@ -69,10 +69,22 @@ class SessionManager {
   }
 
   Future<void> startLocationUpdates() async {
+    print("🚀 startLocationUpdates() wurde aufgerufen");
     final permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
       return;
+    }
+
+    // ✅ Sofort initialen Standort holen
+    try {
+      final initialPos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      print("📍 Initialer Standort: $initialPos");
+      lastKnownLocation.value = initialPos;
+    } catch (e) {
+      print("⚠️ Initialer Standort nicht verfügbar: $e");
     }
 
     Geolocator.getPositionStream(
@@ -81,9 +93,10 @@ class SessionManager {
         distanceFilter: 10, // alle 10m
       ),
     ).listen((pos) {
-      print("Location changed! $pos");
-      lastKnownLocation.value = pos;
       if(_guestId==null || guestId.isEmpty) return;
+      print("$_guestId: Location changed! $pos");
+      lastKnownLocation.value = pos;
+      GuestManager().updateGuestLocation(guestId: _guestId!, latitude: lastKnownLocation.value!.latitude, longitude: lastKnownLocation.value!.longitude);
       AchievementManager().notifyAction(
         AchievementEventType.locationUpdate,
         _guestId!,

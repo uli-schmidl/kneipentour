@@ -168,7 +168,7 @@ class ChallengeManager {
             'joinedAt': Timestamp.now(),
           });
 
-          print("✅ Teilnehmer gespeichert: ${g.name}");
+          print("✅ Teilnehmer gespeichert: ${g.id}");
         }
       }
     }

@@ -11,11 +11,15 @@ import 'screens/start_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
+
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 FlutterLocalNotificationsPlugin();
 
 void main() async{
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   ConnectionService().initialize();
   SessionManager().startLocationUpdates();
   const AndroidInitializationSettings androidInit =
@@ -28,9 +32,7 @@ void main() async{
 
   await flutterLocalNotificationsPlugin.initialize(initSettings);
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+
 
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
     print("📩 Push im Vordergrund empfangen: ${message.notification?.title}");
