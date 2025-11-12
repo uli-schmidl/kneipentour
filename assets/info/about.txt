@@ -1,12 +1,15 @@
-Kneipentour App v0.1.3-beta
+Kneipentour App v0.2.0-beta
 © 2025 by Uli Schmidl
 
-Release notes:
-- Performance: Statusupdates nur bei Bewegung
-- Fix fürs Einchecken in Pubs: Entfernung muss < 40 m sein
-- Auto-Checkin, push-Benachrichtigung, wenn Entfernung von einem Pub < 20 m
-- Radius check, nur wer im Kneipen-Gebiet ist, darf die App verwenden
-- Rang-System - je mehr man trinkt, desto höher der Rang
-- Challenges eingeführt, Admins können Challenges starten, die bestimmte Gäste erfüllen müssen
-- Wirt- und Adminbereich angepasst, Accounts angelegt
-- Asynchrones Checkin/Trinken, wenn kein Internet (inkl. QR-Code)
+!!!!! Release Notes !!!!!
+- Eigener marker wird groß und Rot angezeigt
+- eingecheckte Gäste werden auf der Karte nicht angezeigt
+- Die Gäste auf der Karte werden nun mit ihrem Rang-Icon angezeigt
+- Checkin-Button ist inaktiv, wenn keine Kneipe in der Nähe
+- Auto-Checkout beim Verlassen der Kneipe (Entfernung > 50m) nach 1 Minute
+- Push Funktion eingerichtet
+- Server upgrade auf enterprise version
+- Füllstandsanzeige in Echtzeit
+- Achievements etwas verbessert
+- Wirte-Accounts angelegt
+- Bugfixes beim App-Start

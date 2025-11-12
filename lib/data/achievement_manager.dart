@@ -1,12 +1,16 @@
 import 'dart:async';
 import 'package:kneipentour/models/achievement.dart'; // enthält AchievementEventType!
 import 'package:kneipentour/data/achievements.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 
 /// Zentraler Manager für alle Achievements.
 /// Reagiert auf Events wie Check-in, Drink etc. und prüft Bedingungen.
 class AchievementManager {
   static final AchievementManager _instance = AchievementManager._internal();
+
   factory AchievementManager() => _instance;
+
   AchievementManager._internal();
 
   /// Alle Achievements aus achievements.dart
@@ -26,12 +30,14 @@ class AchievementManager {
     _initialized = true;
 
     achievements = AchievementData().all;
-    print("✅ AchievementManager initialisiert (${achievements.length} Achievements geladen)");
+    print("✅ AchievementManager initialisiert (${achievements
+        .length} Achievements geladen)");
   }
 
   /// Von außen aufrufbar, wenn eine Aktion passiert.
   /// Beispiel: AchievementManager().notifyAction(AchievementEventType.drink, guestId)
-  Future<void> notifyAction(AchievementEventType type, String guestId, {String? pubId}) async {
+  Future<void> notifyAction(AchievementEventType type, String guestId,
+      {String? pubId}) async {
     if (!_initialized) initialize();
 
     print("🎯 Achievement-Event: $type (Gast: $guestId, Pub: ${pubId ?? '–'})");
@@ -68,9 +74,8 @@ class AchievementManager {
     }
   }
 
-  /// Markiert ein Achievement als freigeschaltet, speichert und löst ggf. UI-Callback aus.
   Future<void> _unlockAchievement(Achievement a, String guestId) async {
-    // 🔸 Prüfen, ob bereits freigeschaltet wurde
+    // Schon erreicht? -> abbrechen
     if (a.unlocked || _unlockedAchievementIds.contains(a.id)) return;
 
     a.unlocked = true;
@@ -78,20 +83,67 @@ class AchievementManager {
 
     print("🏆 Achievement freigeschaltet: ${a.title}");
 
-    // 💾 Optional: in Firestore speichern
-    // await FirebaseFirestore.instance.collection('achievements').add({...});
+    try {
+      final db = FirebaseFirestore.instance;
+      final ref = db
+          .collection("guests")
+          .doc(guestId)
+          .collection("achievements")
+          .doc(a.id);
 
-    // 🔔 Popup- oder UI-Callback triggern
+      await ref.set({
+        "unlocked": true,
+        "timestamp": FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      print("☁️ Firestore-Eintrag für Achievement '${a.id}' gespeichert");
+    } catch (e, st) {
+      print("⚠️ Fehler beim Speichern des Achievements in Firestore: $e\n$st");
+    }
+
+    // Popup-Callback
     if (onAchievementUnlocked != null) {
       print("🚀 onAchievementUnlocked Callback ausgelöst für '${a.id}'");
       onAchievementUnlocked!(a);
     } else {
-      print("⚠️ Kein Achievement-Callback registriert (Popup wird nicht gezeigt)");
+      print(
+          "⚠️ Kein Achievement-Callback registriert (Popup wird nicht gezeigt)");
     }
   }
+
+  Future<void> loadUnlockedFromFirestore(String guestId) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection("guests")
+          .doc(guestId)
+          .collection("achievements")
+          .get();
+
+      for (final doc in snap.docs) {
+        final id = doc.id;
+        _unlockedAchievementIds.add(id);
+
+        final ach = achievements.firstWhere(
+              (a) => a.id == id,
+          orElse: () => Achievement(
+            id: id,
+            title: id,
+            description: "",
+            trigger: AchievementEventType.checkIn, iconPath: '',
+          ),
+        );
+        ach.unlocked = true;
+      }
+
+      print("✅ ${_unlockedAchievementIds.length} Achievements aus Firestore geladen");
+    } catch (e) {
+      print("⚠️ Fehler beim Laden der Achievements aus Firestore: $e");
+    }
+  }
+
 }
 
-/// Internes Eventmodell (private Klasse)
+  /// Internes Eventmodell (private Klasse)
 class _AchievementEvent {
   final AchievementEventType type;
   final String guestId;

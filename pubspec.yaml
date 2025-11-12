@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.1+1
 
 environment:
   sdk: ^3.9.2
@@ -30,30 +30,36 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  google_maps_flutter: ^2.3.0
-  flutter_local_notifications: ^19.4.2
+
+  # ---- Core App ----
+  google_fonts: ^6.2.1
   intl: ^0.20.2
-  image_picker: ^1.1.2
-  google_fonts: ^6.1.0
-  confetti: ^0.7.0
-  #audioplayers: ^6.0.0
   shared_preferences: ^2.3.3
-  flutter_launcher_icons: ^0.14.1
-  flutter_paypal_payment: ^1.0.6
-  googleapis_auth: ^2.0.0
-  mobile_scanner: ^7.1.3
-  connectivity_plus: ^6.0.3
-  geolocator: ^10.1.0
-  permission_handler: ^11.3.0
+  permission_handler: ^12.0.1
   qr_flutter: ^4.1.0
+  confetti: ^0.8.0
 
+  # ---- UI / Media ----
+  image_picker: ^1.1.2
+  flutter_local_notifications: ^17.2.3
+  mobile_scanner: ^3.5.7
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
-  cloud_firestore: ^6.0.3
+  # ---- Firebase ----
   firebase_core: ^4.2.0
+  cloud_firestore: ^6.0.3
   firebase_messaging: ^16.0.3
+  cloud_functions: ^6.0.3
+
+  # ---- Maps & Location ----
+  google_maps_flutter: ^2.7.0       # <— Upgrade! stabil
+  geolocator: ^12.0.0               # <— stabil mit Googles Fused Location
+  connectivity_plus: ^6.0.3
+
+  # ---- PayPal (lassen wir wie es ist) ----
+  flutter_paypal_payment: ^1.0.6
+
+  # iOS Icons / Cupertino
+  cupertino_icons: ^1.0.8
 
 
 dev_dependencies:

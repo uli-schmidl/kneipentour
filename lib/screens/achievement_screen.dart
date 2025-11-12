@@ -11,13 +11,13 @@ class AchievementScreen extends StatefulWidget {
   State<AchievementScreen> createState() => _AchievementScreenState();
 }
 
-class _AchievementScreenState extends State<AchievementScreen> {
+class _AchievementScreenState extends State<AchievementScreen>
+    with SingleTickerProviderStateMixin {
   final achievements = AchievementManager().achievements;
   final challengeManager = ChallengeManager();
 
   @override
   Widget build(BuildContext context) {
-    // 🔍 Nur sichtbare oder freigeschaltete Achievements anzeigen
     final visibleAchievements = achievements
         .where((a) => !a.hidden || (a.hidden && a.unlocked))
         .toList();
@@ -26,7 +26,13 @@ class _AchievementScreenState extends State<AchievementScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        title: const Text('Erfolge & Challenges'),
+        title: const Text(
+          'Erfolge & Challenges',
+          style: TextStyle(color: Colors.orangeAccent),
+        ),
+        backgroundColor: Colors.black,
+        elevation: 6,
+        shadowColor: Colors.orangeAccent.withOpacity(0.4),
       ),
       body: ListView(
         padding: const EdgeInsets.all(12),
@@ -70,30 +76,69 @@ class _AchievementScreenState extends State<AchievementScreen> {
   }
 
   Widget _buildAchievementCard(Achievement a) {
-    return Card(
-      color: const Color(0xFF1E1E1E),
-      child: ListTile(
-        leading: ColorFiltered(
-          colorFilter: a.unlocked
-              ? const ColorFilter.mode(Colors.transparent, BlendMode.multiply)
-              : const ColorFilter.matrix(<double>[
-            0.2126, 0.7152, 0.0722, 0, 0, // Grauformel R
-            0.2126, 0.7152, 0.0722, 0, 0, // Grauformel G
-            0.2126, 0.7152, 0.0722, 0, 0, // Grauformel B
-            0, 0, 0, 1, 0,                 // Alpha
-          ]),
-          child: Image.asset(a.iconPath, height: 40),
-        ),
+    final unlocked = a.unlocked;
 
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 400),
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: unlocked ? Colors.black.withOpacity(0.8) : const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: unlocked ? Colors.limeAccent : Colors.white10,
+          width: unlocked ? 2.5 : 1,
+        ),
+        boxShadow: unlocked
+            ? [
+          BoxShadow(
+            color: Colors.orangeAccent.withOpacity(0.6),
+            blurRadius: 12,
+            spreadRadius: 2,
+          ),
+        ]
+            : [],
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        leading: Stack(
+          alignment: Alignment.center,
+          children: [
+            ColorFiltered(
+              colorFilter: unlocked
+                  ? const ColorFilter.mode(Colors.transparent, BlendMode.multiply)
+                  : const ColorFilter.matrix(<double>[
+                0.2126, 0.7152, 0.0722, 0, 0,
+                0.2126, 0.7152, 0.0722, 0, 0,
+                0.2126, 0.7152, 0.0722, 0, 0,
+                0, 0, 0, 1, 0,
+              ]),
+              child: Image.asset(a.iconPath, height: 46),
+            ),
+            if (unlocked)
+              Positioned(
+                bottom: 0,
+                right: 0,
+                child: Icon(Icons.check_circle,
+                    color: Colors.greenAccent.shade400, size: 20),
+              ),
+          ],
+        ),
         title: Text(
           a.title,
-          style: const TextStyle(color: Colors.white),
+          style: TextStyle(
+            color: unlocked ? Colors.orangeAccent : Colors.white70,
+            fontWeight: FontWeight.bold,
+          ),
         ),
-        subtitle: Text(a.description, style: const TextStyle(color: Colors.white70)),
-        trailing: Icon(
-          a.unlocked ? Icons.check_circle : Icons.lock,
-          color: a.unlocked ? Colors.greenAccent : Colors.grey,
+        subtitle: Text(
+          a.description,
+          style: TextStyle(
+            color: unlocked ? Colors.white70 : Colors.white38,
+          ),
         ),
+        trailing: unlocked
+            ? const Icon(Icons.emoji_events, color: Colors.amberAccent)
+            : const Icon(Icons.lock, color: Colors.grey),
       ),
     );
   }

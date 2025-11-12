@@ -1,30 +1,32 @@
 import 'dart:async';
-import 'dart:math';
 import 'dart:ui' as ui;
-import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'package:kneipentour/config/location_config.dart';
-import 'package:kneipentour/data/activity_manager.dart';
+import 'package:kneipentour/data/achievement_manager.dart';
 import 'package:kneipentour/data/challenge_manager.dart';
 import 'package:kneipentour/data/connection_service.dart';
-import 'package:kneipentour/data/guest_manager.dart';
-import 'package:kneipentour/data/pub_manager.dart';
-import 'package:kneipentour/data/rank_manager.dart';
 import 'package:kneipentour/data/session_manager.dart';
+import 'package:kneipentour/data/pub_manager.dart';
+import 'package:kneipentour/data/guest_manager.dart';
+import 'package:kneipentour/data/activity_manager.dart';
+import 'package:kneipentour/data/rank_manager.dart';
 import 'package:kneipentour/models/achievement.dart';
 import 'package:kneipentour/models/activity.dart';
 import 'package:kneipentour/screens/achievement_screen.dart';
+import 'package:kneipentour/screens/info_screen.dart';
 import 'package:kneipentour/screens/pub_info_screen.dart';
-import 'stamp_screen.dart';
-import 'ranking_screen.dart';
-import 'info_screen.dart';
+import 'package:kneipentour/screens/ranking_screen.dart';
+import 'package:kneipentour/screens/stamp_screen.dart';
+import 'package:kneipentour/widgets/achievement_popup.dart';
 import '../models/pub.dart';
-import '../data/achievement_manager.dart';
-import '../widgets/achievement_popup.dart';
+
 
 class HomeScreen extends StatefulWidget {
   final String userName;
@@ -37,42 +39,77 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
   GoogleMapController? _mapController;
-  Set<Marker> _guestMarkers = {};
-  Set<Marker> _pubMarkers={};
-  Marker? _mobileUnitMarker;
-  BitmapDescriptor? _currentLocationIcon;
-  bool _wantsSelfMarker = false; // merkt sich, dass wir den Marker setzen wollen
 
-  final double notificationDistance = 20;
+// Marker-Sets
+  final Set<Marker> _pubMarkers = {};
+  final Set<Marker> _guestMarkers = {};
+  Marker? _selfMarker;
+  Marker? _mobileUnitMarker;
+
+// Icons (Self + Emojis)
+  BitmapDescriptor? _currentLocationIcon;
+  BitmapDescriptor? _emojiIconKing;
+  BitmapDescriptor? _emojiIconBeer;
+  BitmapDescriptor? _emojiIconNoob;
+
+  final LatLng _centerPoint = LocationConfig.centerPoint;
+  final double _visibleRadius = LocationConfig.allowedRadius;
+
+  bool _pubsReady = false;
+  bool _pubsLoaded = false;
+  bool _isWithinAllowedArea = true;
+
+  Position? _currentLocation;
   Pub? _mobilePubCached;
   Pub? _cachedNextPub;
-  final LatLng _centerPoint = LocationConfig.centerPoint;
-  bool _isWithinAllowedArea=true;
-  bool _pubsReady = false;
-  Position? _currentLocation;
-  String? _currentStatus="unterwegs";
+
+// Streams/Listener
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _pubSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _guestSub;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _activeCheckinsSub;
+  VoidCallback? _locationListener;
+  final Map<String, BitmapDescriptor> _iconCache = {};
 
 
-// Sichtbarer Radius in Metern
-  final double _visibleRadius = LocationConfig.allowedRadius; // 1 km
+// Füllstände (pubId -> count)
+  Map<String, int> _activeCounts = {};
 
 
-  StreamSubscription? _pubSub;
-  StreamSubscription? _guestSub;
 
-
-  Future<void> _loadMobilePub() async {
-    _mobilePubCached = await PubManager().getMobileUnit();
-    setState(() {});
-  }
-
-
-  @override
+    @override
   void dispose() {
     _pubSub?.cancel();
     _guestSub?.cancel();
+    _activeCheckinsSub?.cancel();
+
+    if (_locationListener != null) {
+      SessionManager().lastKnownLocation.removeListener(_locationListener!);
+      _locationListener = null;
+    }
+    _mapController?.dispose();
     super.dispose();
   }
+
+  Future<BitmapDescriptor> _iconFromAsset(String path, int widthPx, int heightPix) async {
+    final key = '$path@$widthPx';
+    final cached = _iconCache[key];
+    if (cached != null) return cached;
+
+    final data = await rootBundle.load(path);
+    final codec = await ui.instantiateImageCodec(
+      data.buffer.asUint8List(),
+      targetWidth: widthPx,
+      targetHeight: heightPix,
+    );
+    final frame = await codec.getNextFrame();
+    final bytes = (await frame.image.toByteData(format: ui.ImageByteFormat.png))!
+        .buffer.asUint8List();
+
+    final icon = BitmapDescriptor.fromBytes(bytes);
+    _iconCache[key] = icon;
+    return icon;
+  }
+
 
   Future<void> _maybeUpdateNextPub() async {
     if (!_pubsReady) return;
@@ -81,150 +118,82 @@ class _HomeScreenState extends State<HomeScreen> {
 
 
   void _listenToGuestsAndActivities() {
-    GuestManager().getGuestsStream().listen((guestSnap) async {
-      // 📌 Schritt 1: Aktive Check-ins abrufen
+    _guestSub?.cancel();
+    _guestSub = GuestManager().getGuestsStream().listen((guestSnap) async {
+      // aktive Checkins holen, um Gäste in Kneipen zu ignorieren
       final openCheckInsSnap = await FirebaseFirestore.instance
           .collection('activities')
           .where('action', isEqualTo: 'check-in')
           .where('timestampEnd', isNull: true)
           .get();
-
       final checkedInGuestIds = openCheckInsSnap.docs
-          .map((doc) => doc['guestId'] as String)
+          .map((d) => d['guestId'] as String)
           .toSet();
 
-      // 📌 Schritt 2: Drink-Counts ermitteln (für Rankings / Emojis)
-      final activitiesSnap = await ActivityManager().getActivitiesStream().first;
+      // Drinks (für Ranking)
+      final acts = await ActivityManager().getActivitiesStream().first;
       final drinksPerGuest = <String, int>{};
-      for (var doc in activitiesSnap.docs) {
+      for (var doc in acts.docs) {
         final data = doc.data();
         if (data['action'] == 'drink') {
-          final id = data['guestId'] ?? '';
-          drinksPerGuest[id] = (drinksPerGuest[id] ?? 0) + 1;
+          final gid = data['guestId'] ?? '';
+          drinksPerGuest[gid] = (drinksPerGuest[gid] ?? 0) + 1;
         }
       }
 
-      // 📌 Schritt 3: Marker aufbauen – aber eingecheckte Gäste NICHT anzeigen
-      Set<Marker> guestMarkers = {};
-      for (var doc in guestSnap.docs) {
+      final Set<Marker> newGuestMarkers = {};
+      for (final doc in guestSnap.docs) {
         final data = doc.data();
-        final guestId = doc.id;
+        final gid = doc.id;
+        if (SessionManager().guestId==gid) continue;
+        if (checkedInGuestIds.contains(gid)) continue;
 
-        // ❗ Eingecheckte Gäste überspringen
-        if (checkedInGuestIds.contains(guestId)) {
-          continue;
-        }
         final lat = (data['latitude'] ?? 0).toDouble();
         final lon = (data['longitude'] ?? 0).toDouble();
-        if (lat == 0 || lon == 0) {
-          continue;
-        }
+        if (lat == 0 || lon == 0) continue;
 
-        final drinkCount = drinksPerGuest[guestId] ?? 0;
-        final rank = RankManager().getRankForDrinks(drinkCount);
-
+        // nur im sichtbaren Radius
         final distance = LocationConfig.calculateDistance(
-          _centerPoint.latitude,
-          _centerPoint.longitude,
-          lat,
-          lon,
-        );
-
-        // 👉 Nur Gäste im Radius anzeigen
+            _centerPoint.latitude, _centerPoint.longitude, lat, lon);
         if (distance > _visibleRadius) continue;
 
-        // ⬇️ Rank-Emoji + kleiner Avatar (kann später erweitert werden)
-        final icon = await _getIcon("assets/icons/king.png", 40, 96);
+        final drinks = drinksPerGuest[gid] ?? 0;
+        final rank = RankManager().getRankForDrinks(drinks);
 
-        guestMarkers.add(
+        // Emoji-Icon wählen
+        final BitmapDescriptor icon = drinks >= 10
+            ? (_emojiIconKing ?? BitmapDescriptor.defaultMarker)
+             :(_emojiIconBeer ?? BitmapDescriptor.defaultMarker);
+
+        newGuestMarkers.add(
           Marker(
-            markerId: MarkerId('guest_$guestId'),
+            markerId: MarkerId('guest_$gid'),
             position: LatLng(lat, lon),
             icon: icon,
             infoWindow: InfoWindow(
-              title: "${rank.emoji} $guestId",
-              snippet: "Getränke: $drinkCount",
+              title: "${rank.emoji} $gid",
+              snippet: "Getränke: $drinks",
             ),
+            zIndex: 10,
           ),
         );
       }
 
       if (!mounted) return;
       setState(() {
-        _guestMarkers = guestMarkers;
-      });
-    });
-  }
-
-
-
-  void _listenToMobileUnitMarker() {
-    PubManager().getPubsStream().listen((snapshot) async {
-      if (!mounted) return; // ✅ Wenn der Screen nicht mehr existiert → abbrechen
-
-      final mobileDocs = snapshot.docs
-          .where((doc) => (doc.data()['isMobileUnit'] ?? false) == true)
-          .toList();
-
-      if (mobileDocs.isEmpty) return;
-
-      final mobileDoc = mobileDocs.first;
-      final data = mobileDoc.data();
-
-      final pubId = mobileDoc.id;
-      final name = data['name'] ?? 'Mobile Einheit';
-      final lat = (data['latitude'] ?? 0).toDouble();
-      final lon = (data['longitude'] ?? 0).toDouble();
-      final isAvailable = data['isAvailable'] ?? true;
-
-
-      // 🔁 aktualisiere das gecachte Objekt (für den Button)
-      _mobilePubCached = Pub(
-        id: pubId,
-        name: name,
-        description: data['description'] ?? '',
-        latitude: lat,
-        longitude: lon,
-        iconPath: data['iconPath'] ?? 'assets/icons/mobile.png',
-        isMobileUnit: true,
-        isOpen: true,
-        capacity: (data['capacity'] ?? 0) is int
-            ? data['capacity']
-            : int.tryParse(data['capacity']?.toString() ?? '0') ?? 0,
-        isAvailable: isAvailable,
-      );
-
-      // 🧭 wähle Icon basierend auf Status
-      final iconPath = isAvailable
-          ? (data['iconPath'] ?? 'assets/icons/mobile.png')
-          : 'assets/icons/mobile_Einsatz.gif';
-
-      final icon = await BitmapDescriptor.fromAssetImage(
-        const ImageConfiguration(size: Size(48, 48)),
-        iconPath,
-      );
-      if (!mounted) return;
-
-      setState(() {
-        _mobileUnitMarker = Marker(
-          markerId: MarkerId(pubId),
-          position: LatLng(lat, lon),
-          icon: icon,
-          infoWindow: InfoWindow(
-            title: name,
-            snippet: isAvailable
-                ? 'Bereit für den nächsten Auftrag'
-                : '🚨 Im Einsatz!',
-          ),
-        );
+        _guestMarkers
+          ..clear()
+          ..addAll(newGuestMarkers);
       });
     });
   }
 
   void _listenToPubs() {
+    _pubSub?.cancel();
     _pubSub = PubManager().getPubsStream().listen((snapshot) async {
       if (!mounted) return;
 
+      // PubManager aktualisieren
       final pubs = snapshot.docs.map((doc) {
         final data = doc.data();
         return Pub(
@@ -242,34 +211,154 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }).toList();
 
-      // 🔥 Prüfen, ob sich etwas wirklich geändert hat
-      bool hasChanged = pubs.length != PubManager().allPubs.length ||
-          !_listEquals(
-            pubs.map((p) => p.id + p.isOpen.toString()).toList(),
-            PubManager()
-                .allPubs
-                .map((p) => p.id + p.isOpen.toString())
-                .toList(),
-          );
+      PubManager().allPubs
+        ..clear()
+        ..addAll(pubs);
 
-      if (hasChanged) {
-        PubManager().allPubs
-          ..clear()
-          ..addAll(pubs);
+      // Pub-Marker aus Füllständen neu zeichnen
+      _rebuildPubMarkersFromCounts();
 
-        await _loadPubMarkers(); // Marker aktualisieren
-        print("🏪 Kneipenmarker neu geladen (${pubs.length})");
+      if (mounted && !_pubsLoaded) {
+        setState(() => _pubsLoaded = true);
       }
     });
   }
 
-  bool _listEquals<T>(List<T> a, List<T> b) {
-    if (a.length != b.length) return false;
-    for (int i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) return false;
-    }
-    return true;
+
+  void _listenActiveFillLevels() {
+    _activeCheckinsSub?.cancel();
+    _activeCheckinsSub = FirebaseFirestore.instance
+        .collection('activities')
+        .where('action', isEqualTo: 'check-in')
+        .where('timestampEnd', isNull: true)
+        .snapshots()
+        .listen((qs) {
+      final counts = <String, int>{};
+      for (final d in qs.docs) {
+        final pid = (d.data()['pubId'] ?? '') as String;
+        if (pid.isEmpty) continue;
+        counts[pid] = (counts[pid] ?? 0) + 1;
+      }
+
+      // nur updaten, wenn sich wirklich was ändert
+      final changed = counts.length != _activeCounts.length ||
+          counts.entries.any((e) => _activeCounts[e.key] != e.value);
+      if (!changed) return;
+
+      _activeCounts = counts;
+      _rebuildPubMarkersFromCounts();
+      if (mounted) setState(() {});
+    });
   }
+
+  // ⏱ letzter Aufrufzeitpunkt
+  DateTime? _lastRebuildCall;
+// 🚫 verhindert mehrfach gleichzeitiges Rendern
+  bool _isRebuildingPubs = false;
+
+  Future<void> _rebuildPubMarkersFromCounts() async {
+    // 🛑 Wenn noch keine Pubs geladen sind → später nochmal versuchen
+    if (PubManager().allPubs.isEmpty) {
+      print("⏳ Noch keine Pubs geladen – versuche erneut in 1s...");
+      Future.delayed(const Duration(seconds: 1), _rebuildPubMarkersFromCounts);
+      return;
+    }
+
+    // 🧯 Throttle: wenn innerhalb von 800 ms schon einmal ausgeführt → überspringen
+    final now = DateTime.now();
+    if (_lastRebuildCall != null &&
+        now.difference(_lastRebuildCall!) < const Duration(milliseconds: 800)) {
+      return;
+    }
+    _lastRebuildCall = now;
+
+    if (_isRebuildingPubs) return;
+    _isRebuildingPubs = true;
+
+    try {
+      _pubMarkers.clear();
+      Marker? mobile;
+
+      for (final pub in PubManager().allPubs) {
+        final currentGuests = _activeCounts[pub.id] ?? 0;
+        final capacity = pub.capacity;
+        final fill = capacity > 0 ? currentGuests / capacity : 0.0;
+
+        String fullnessText;
+        if (pub.isMobileUnit) {
+          fullnessText = pub.isAvailable ? "Bereit!" : "Im Einsatz!";
+        } else {
+          if (fill < 0.5) {
+            fullnessText = "🟢 rankommen!";
+          } else if (fill < 0.75) {
+            fullnessText = "🟠 gmidli";
+          } else if (fill < 1) {
+            fullnessText = "🔴 kuschelig";
+          } else {
+            fullnessText = "🔥 voll";
+          }
+          fullnessText = "$currentGuests / $capacity · $fullnessText";
+        }
+
+        // 🧩 Icons cachen + laden
+        final icon = await _iconFromAsset(
+          pub.isOpen ? pub.iconPath : 'assets/icons/closed.png',
+          104,
+          104,
+        );
+
+        final marker = Marker(
+          markerId: MarkerId(pub.id),
+          position: LatLng(pub.latitude, pub.longitude),
+          icon: icon,
+          infoWindow: InfoWindow(
+            title: pub.name,
+            snippet: fullnessText,
+            onTap: () async {
+              final result = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PubInfoScreen(
+                    pub: pub,
+                    guestId: SessionManager().guestId,
+                    onCheckIn: _checkInGuest,
+                    onCheckOut: _checkOutGuest,
+                  ),
+                ),
+              );
+
+              if (result == PubAction.checkedIn ||
+                  result == PubAction.checkedOut ||
+                  result == PubAction.drink) {
+                print("🔄 Kneipendaten geändert → Refresh der Karte");
+                _listenToGuestsAndActivities();
+                _listenActiveFillLevels();
+              }
+            },
+          ),
+        );
+
+        if (pub.isMobileUnit) {
+          mobile = marker;
+        } else {
+          _pubMarkers.add(marker);
+        }
+      }
+
+      _mobileUnitMarker = mobile;
+
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e, st) {
+      print("❌ Fehler beim Rebuild der Pubs: $e\n$st");
+    } finally {
+      _isRebuildingPubs = false;
+    }
+  }
+
+
+
 
 
   void _requestMobileUnit() async {
@@ -316,27 +405,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
 
-  /*void _showNotificationToMobileUnit() async {
-    const AndroidNotificationDetails androidDetails =
-    AndroidNotificationDetails(
-      'mobile_unit_channel',
-      'Mobile Einheit',
-      channelDescription: 'Benachrichtigung für Mobile Einheit',
-      importance: Importance.max,
-      priority: Priority.high,
-    );
-
-    await _notificationsPlugin.show(
-      1,
-      'Mobile Einheit angefordert!',
-      'Gast $SessionManager().guestId benötigt Unterstützung.',
-      NotificationDetails(android: androidDetails),
-    );
-  }*/
-
-  bool _pubsLoaded = false;
-
-
   List<Widget> get screens {
     return [
       _buildMap(),
@@ -356,178 +424,92 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _initializeApp();
-
-    // 🧡 Achievement-Listener aktivieren
+    AchievementManager().initialize(); // 🔥 wichtig, muss VOR erstem notifyAction stehen
     AchievementManager().onAchievementUnlocked = (achievement) {
-      if (!mounted) return;
-      _showAchievementPopup(context, achievement.id);
+      _showAchievementPopup(achievement);
     };
-    SessionManager().lastKnownLocation.addListener(() async {
+    Future.microtask(() async {
+      await AchievementManager().loadUnlockedFromFirestore(SessionManager().guestId);
+    });
+    // Standort-Listener aus SessionManager (ValueNotifier)
+    _locationListener = () async {
       if (!mounted) return;
-
       final pos = SessionManager().lastKnownLocation.value;
       if (pos == null) return;
 
-      // 🔥 Standort lokal aktualisieren
       _currentLocation = pos;
+      _updateSelfMarker();           // großer Self-Marker
+      await _maybeUpdateNextPub();   // „nächste Kneipe“ neu bewerten
 
-      // 🔄 Marker aktualisieren
-      _ensureSelfMarker();      // <— zentraler Aufruf
-      _updateCurrentLocationMarker();
+      final distanceToCenter = LocationConfig.calculateDistance(
+          pos.latitude, pos.longitude, _centerPoint.latitude, _centerPoint.longitude);
+      final inside = distanceToCenter <= _visibleRadius;
+      if (inside != _isWithinAllowedArea && mounted) {
+        setState(() => _isWithinAllowedArea = inside);
+      }
+    };
+    SessionManager().lastKnownLocation.addListener(_locationListener!);
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      print('📩 Nachricht im Vordergrund erhalten: ${message.notification?.title}');
+      final title = message.notification?.title ?? "Push";
+      final body = message.notification?.body ?? "";
 
-      // 🧭 Nächste Kneipe neu berechnen
-      await _checkForNextPubChange();
-
-      // 🚦 Bereich prüfen (inside / outside)
-      final distance = LocationConfig.calculateDistance(
-        pos.latitude,
-        pos.longitude,
-        _centerPoint.latitude,
-        _centerPoint.longitude,
+      // ✅ Snackbar oder Dialog anzeigen:
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("$title\n$body")),
       );
-      final isInside = distance <= _visibleRadius;
-
-      if (isInside != _isWithinAllowedArea) {
-        setState(() => _isWithinAllowedArea = isInside);
-      }
-
-      SessionManager().currentPubId.addListener(() async {
-        if (!mounted) return;
-        await _maybeUpdateNextPub();
-        setState(() {}); // Titel & „Nächste Kneipe“-Karte aktualisieren
-      });
-
-      // 🏃 Status (unterwegs / in Kneipe) aktualisieren
-      _checkGuestStatus();
-
-      // UI aktualisieren (nur einmal!)
-      if (mounted) setState(() {});
     });
-
-
-    _saveGuestToken();
-  }
-
-  Future<void> _checkGuestStatus() async {
-    final guestId = SessionManager().guestId;
-
-    // Prüfe ob ein aktiver Check-In existiert
-    final activeCheckIn = await ActivityManager().getCheckInActivity(guestId);
-
-    if (!mounted) return;
-
-    if (activeCheckIn != null && activeCheckIn.pubId.isNotEmpty) {
-      final pub = PubManager().getPubById(activeCheckIn.pubId);
-
-      if (pub != null) {
-        setState(() {
-          _currentStatus = "in ${pub.name}";
-        });
-      } else {
-        setState(() {
-          _currentStatus = "in Kneipe";
-        });
-      }
-
-    } else {
-      setState(() {
-        _currentStatus = "unterwegs";
-      });
-    }
-  }
-
-
-  Future<void> _saveGuestToken() async {
-    final token = await FirebaseMessaging.instance.getToken();
-    final guestId = SessionManager().guestId;
-
-    if (token == null || guestId.isEmpty) return;
-
-    await FirebaseFirestore.instance
-        .collection('guests')
-        .doc(guestId)
-        .set({
-      'fcmToken': token,
-      'lastUpdated': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    print("✅ Gast FCM-Token gespeichert: $token");
   }
 
   Future<void> _initializeApp() async {
-    await PubManager().loadPubs(); // wirklich abwarten
-    await _loadPubMarkers();       // erst danach Marker setzen
-    _currentLocation=SessionManager().lastKnownLocation.value;
-    _wantsSelfMarker = true;
+    // Pubs laden, Marker vorbereiten
+    await PubManager().loadPubs();
+    await _ensureEmojiIcons();
+    await _loadSelfIcon();
 
-    // versuche initial gleich zu setzen (falls Position schon da)
-    _ensureSelfMarker();
-    _pubsReady =true;
-    setState(() => _pubsLoaded = true);
-    _listenToMobileUnitMarker();
+    _currentLocation = SessionManager().lastKnownLocation.value;
+    _updateSelfMarker();
+
+    // Live-Listener starten
     _listenToPubs();
-    _listenToGuestsAndActivities();
-    _loadCurrentLocationIcon();
-    await _loadMobilePub();
-    AchievementManager().initialize();
+    _listenActiveFillLevels();       // Füllstände
+    _listenToGuestsAndActivities();  // Gäste bewegen
+
+    _pubsReady = true;
+    if (mounted) setState(() => _pubsLoaded = true);
+
     await _maybeUpdateNextPub();
   }
 
-  Future<void> _loadCurrentLocationIcon() async {
-    final ByteData data = await rootBundle.load('assets/icons/me.png');
-    final ui.Codec codec = await ui.instantiateImageCodec(
+  Future<void> _loadSelfIcon() async {
+    // eigener Marker soll groß sein
+    final data = await rootBundle.load('assets/icons/me.png');
+    final codec = await ui.instantiateImageCodec(
       data.buffer.asUint8List(),
-      targetWidth: 40,
+      targetWidth: 40,   // groß
       targetHeight: 96,
     );
-    final ui.FrameInfo frame = await codec.getNextFrame();
-    final Uint8List bitmap = (await frame.image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
-
-    _currentLocationIcon = BitmapDescriptor.fromBytes(bitmap);
-
-    if (_currentLocation != null) _updateCurrentLocationMarker();
+     _currentLocationIcon = await _iconFromAsset('assets/icons/me.png', 40,96); // schön groß
   }
 
-  void _updateCurrentLocationMarker() {
-    final pos = SessionManager().lastKnownLocation.value;
-    if (pos == null || _currentLocationIcon == null) return;
-
-    final marker = Marker(
-      markerId: const MarkerId('current_location'),
-      position: LatLng(pos.latitude, pos.longitude),
-      icon: _currentLocationIcon!,
-      infoWindow: const InfoWindow(title: 'Du bist hier 🍻'),
-    );
-
-    setState(() {
-      _guestMarkers.removeWhere((m) => m.markerId.value == 'current_location');
-      _guestMarkers.add(marker);
-    });
-    _ensureSelfMarker();
-
+  Future<void> _ensureEmojiIcons() async {
+    if (_emojiIconKing != null) return;
+    _emojiIconKing = await _emojiToBitmap('👑', 64);
+    _emojiIconBeer = await _emojiToBitmap('🍺', 56);
+    _emojiIconNoob = await _emojiToBitmap('🌱', 48);
   }
 
-  void _ensureSelfMarker() {
-    if (!_wantsSelfMarker) return;
-
-    final pos = SessionManager().lastKnownLocation.value;
-    if (!mounted || pos == null || _currentLocationIcon == null) {
-      print("noch nicht alles da, später nochmal versuchen mounted=$mounted, pos=$pos, current location=$_currentLocation");
-      return;
-    }
-
-    final selfMarker = Marker(
-      markerId: const MarkerId('current_location'),
-      position: LatLng(pos.latitude, pos.longitude),
-      icon: _currentLocationIcon!,
-      infoWindow: const InfoWindow(title: 'Du bist hier 🍻'),
-    );
-
-    setState(() {
-      _guestMarkers.removeWhere((m) => m.markerId.value == 'current_location');
-      _guestMarkers.add(selfMarker);
-
-    });
+  Future<BitmapDescriptor> _emojiToBitmap(String emoji, int size) async {
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    final tp = TextPainter(textDirection: TextDirection.ltr);
+    tp.text = TextSpan(text: emoji, style: TextStyle(fontSize: size.toDouble()));
+    tp.layout();
+    tp.paint(canvas, const Offset(0, 0));
+    final pic = recorder.endRecording();
+    final img = await pic.toImage(size, size);
+    final data = await img.toByteData(format: ui.ImageByteFormat.png);
+    return BitmapDescriptor.fromBytes(data!.buffer.asUint8List());
   }
 
 
@@ -539,6 +521,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (nextPub == null) return;
 
     // ⚡️ Nur wenn sich etwas ändert, UI aktualisieren
+    if(!mounted)return;
+
     if (_cachedNextPub == null || _cachedNextPub!.id != nextPub.id) {
       setState(() {
         _cachedNextPub = nextPub;
@@ -548,19 +532,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // GoogleMap Widget aktualisieren
   Widget _buildMap() {
-    final pos = SessionManager().lastKnownLocation.value;
+    final pos = _currentLocation ?? SessionManager().lastKnownLocation.value;
     if (pos == null) {
       return const Center(
-        child: Text(
-          "📍 Standort wird ermittelt...",
-          style: TextStyle(color: Colors.white70),
-        ),
+        child: Text("📍 Standort wird ermittelt...",
+            style: TextStyle(color: Colors.white70)),
       );
     }
-    final LatLng startPos;
 
-      startPos = LatLng(_currentLocation!.latitude, _currentLocation!.longitude);
-
+    final startPos = LatLng(pos.latitude, pos.longitude);
 
     const String darkMapStyle = '''
 [
@@ -578,52 +558,30 @@ class _HomeScreenState extends State<HomeScreen> {
   {"featureType": "transit", "elementType": "all", "stylers": [{ "visibility": "off" }]}
 ]
 ''';
-   // {"featureType": "building", "elementType": "geometry.fill", "stylers": [{"color": "#303030"}]},
-   // {"featureType": "building", "elementType": "geometry.stroke", "stylers": [{"color": "#383838"}]}
+
+    final markers = <Marker>{
+      ..._pubMarkers,
+      ..._guestMarkers,
+      if (_mobileUnitMarker != null) _mobileUnitMarker!,
+      if (_selfMarker != null) _selfMarker!, // Self ganz am Ende hinzufügen
+    };
 
     return GoogleMap(
-      initialCameraPosition: CameraPosition(target: startPos, zoom: 15
-      ),
+      initialCameraPosition: CameraPosition(target: startPos, zoom: 15),
       myLocationEnabled: false,
       myLocationButtonEnabled: true,
-        onMapCreated: (controller) {
-        _mapController = controller;
+      onMapCreated: (c) {
+        _mapController = c;
         try {
           _mapController?.setMapStyle(darkMapStyle);
-        } catch (e) {
-          print("⚠️ Map style konnte nicht angewendet werden: $e");
-        }
-        _fitMapToMarkers();
-        _ensureSelfMarker();
-        },
-      markers: {
-        ..._pubMarkers,
-        ..._guestMarkers,
-        if (_mobileUnitMarker != null) _mobileUnitMarker!,
+        } catch (_) {}
       },
+      markers: markers,
     );
   }
-
-  void _fitMapToMarkers() {
-    final allMarkers = {..._pubMarkers, ..._guestMarkers};
-    if (_mobileUnitMarker != null) allMarkers.add(_mobileUnitMarker!);
-
-    if (allMarkers.isEmpty) return;
-
-    final latitudes = allMarkers.map((m) => m.position.latitude);
-    final longitudes = allMarkers.map((m) => m.position.longitude);
-
-    final bounds = LatLngBounds(
-      southwest: LatLng(latitudes.reduce(min), longitudes.reduce(min)),
-      northeast: LatLng(latitudes.reduce(max), longitudes.reduce(max)),
-    );
-
-    _mapController?.animateCamera(CameraUpdate.newLatLngBounds(bounds, 50));
-  }
-
-
-
   void _onItemTapped(int index) {
+    if(!mounted)return;
+
     setState(() {
       _selectedIndex = index;
     });
@@ -739,7 +697,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           // Karte nimmt 2/3 des Bildschirms ein
           SizedBox(
-            height: MediaQuery.of(context).size.height * 0.66,
+            height: MediaQuery.of(context).size.height * 0.6,
             child: _buildMap(),
           ),
 
@@ -780,91 +738,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<BitmapDescriptor> _getIcon(String path, int targetWidth, int targetHeight) async {
-    final data = await rootBundle.load(path);
-    final codec = await ui.instantiateImageCodec(data.buffer.asUint8List(), targetWidth: targetWidth, targetHeight: targetHeight);
-    final frame = await codec.getNextFrame();
-    final bytes = (await frame.image.toByteData(format: ui.ImageByteFormat.png))!.buffer.asUint8List();
-    return BitmapDescriptor.fromBytes(bytes);
-  }
-
-  Future<void> _loadPubMarkers() async {
-    final pubs = PubManager().allPubs;
-
-    Set<Marker> pubMarkers = {};
-    Marker? mobileMarker;
-
-    for (var pub in pubs) {
-
-      // 🟡 Anzahl eingecheckter Gäste holen
-      final currentGuests = await ActivityManager().getActiveCheckInsForPub(pub.id);
-      final capacity = pub.capacity;
-
-      // 🟢 Icon abhängig von geöffnet / geschlossen
-      final iconPath = pub.isOpen ? pub.iconPath : 'assets/icons/closed.png';
-      final icon = await _getIcon(iconPath, 96, 96);
-
-      // 🟥 Farbe abhängig vom Füllstand (optional nice effect)
-      final fill = currentGuests / capacity;
-      String fullnessText;
-      if (fill < 0.5) {
-        fullnessText = "🟢 rankommen!";
-      } else if (fill < 0.75) {
-        fullnessText = "🟠 gmidli";
-      } else if (fill < 1){
-        fullnessText = "🔴 kuschelilg";
-      } else {
-        fullnessText = "🔴 zerbirst";
-      }
-
-
-      final marker = Marker(
-        markerId: MarkerId(pub.id),
-        position: LatLng(pub.latitude, pub.longitude),
-        icon: icon,
-        infoWindow: InfoWindow(
-          title: pub.name,
-          snippet: "$currentGuests / $capacity · $fullnessText",
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) => PubInfoScreen(
-                  pub: pub,
-                  guestId: SessionManager().guestId,
-                  onCheckIn: _checkInGuest,
-                  onCheckOut: _checkOutGuest,
-                ),
-              ),
-            ).then((result) async {
-            if (!mounted) return;
-            if (result is Map && result['changed'] == true) {
-            // 🔄 UI & Empfehlung sofort aktualisieren
-            await _maybeUpdateNextPub();
-            setState(() {});
-            }
-            });
-          },
-        ),
-      );
-
-      if (pub.isMobileUnit) {
-        mobileMarker = marker;
-      } else {
-        pubMarkers.add(marker);
-      }
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _pubMarkers = pubMarkers;
-      _mobileUnitMarker = mobileMarker;
-    });
-
-    if (_mapController != null && _pubMarkers.isNotEmpty) {
-      Future.delayed(const Duration(milliseconds: 500), _fitMapToMarkers);
-    }
-  }
 
 
   Widget _buildNextPubSection() {
@@ -882,12 +755,47 @@ class _HomeScreenState extends State<HomeScreen> {
             style: TextStyle(color: Colors.grey[400], fontSize: 14),
           ),
           const SizedBox(height: 6),
-          Text(
-            pub.name,
-            style: const TextStyle(
-              color: Colors.orangeAccent,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
+          GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PubInfoScreen(
+                    pub: pub,
+                    guestId: SessionManager().guestId,
+                    onCheckIn: _checkInGuest,
+                    onCheckOut: _checkOutGuest,
+                  ),
+                ),
+              ).then((result) async {
+                if (!mounted) return;
+                if (result is Map && result['changed'] == true) {
+                  await _maybeUpdateNextPub();
+                  setState(() {});
+                }
+              });
+            },
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  pub.iconPath.isNotEmpty ? pub.iconPath : 'assets/icons/default_pub.png',
+                  width: 36,
+                  height: 36,
+                  errorBuilder: (_, __, ___) =>
+                  const Icon(Icons.local_bar, color: Colors.orangeAccent, size: 30),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  pub.name,
+                  style: const TextStyle(
+                    color: Colors.orangeAccent,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
@@ -917,86 +825,159 @@ class _HomeScreenState extends State<HomeScreen> {
       nextPub.longitude,
     ).round();
 
-    final mobilePub = _mobilePubCached;
-
-
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(
-          "🧭 Näheste Kneipe, in der du noch nicht warst:",
-          style: TextStyle(color: Colors.grey[400], fontSize: 14),
-        ),
-        const SizedBox(height: 6),
 
-        GestureDetector(
-        onTap: () {
-        Navigator.push(
-        context,
-        MaterialPageRoute(
-        builder: (_) => PubInfoScreen(
-        pub: nextPub,
-        guestId: SessionManager().guestId,
-        onCheckIn: _checkInGuest,
-        onCheckOut: _checkOutGuest,
-        ),
-        ),
-        ).then((result) async {
-          if (!mounted) return;
-          if (result is Map && result['changed'] == true) {
-            // 🔄 UI & Empfehlung sofort aktualisieren
-            await _maybeUpdateNextPub();
-            setState(() {});
-          }
-        });
-        },
-        child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-        // 🏷️ Icon links neben Name
-        Image.asset(
-        nextPub.iconPath.isNotEmpty ? nextPub.iconPath : 'assets/icons/default_pub.png',
-        width: 36,
-        height: 36,
-        errorBuilder: (context, error, stackTrace) => const Icon(Icons.local_bar, color: Colors.orangeAccent, size: 30),
-        ),
-    const SizedBox(width: 10),
-    Text(
-    nextPub.name,
-    style: const TextStyle(
-    color: Colors.orangeAccent,
-    fontSize: 20,
-    fontWeight: FontWeight.bold,
-    decoration: TextDecoration.underline,
-    ),
-    ),
-    ],
-    ),
-    ),
+        ValueListenableBuilder<String?>(
+          valueListenable: SessionManager().currentPubId,
+          builder: (_, currentPubId, __) {
 
-    const SizedBox(height: 6),
-    Text("$distance m entfernt",
-    style: const TextStyle(color: Colors.white70, fontSize: 16)),
-    const SizedBox(height: 8),
-    ElevatedButton.icon(
-    icon: const Icon(Icons.medical_services),
-    label: Text(
-    mobilePub == null
-    ? "Mobile Einheit nicht verfügbar"
-        : (mobilePub.isAvailable
-    ? "Mobile Einheit anfordern"
-        : "🚨 Einheit unterwegs..."),
-    ),
-    style: ElevatedButton.styleFrom(
-    backgroundColor: mobilePub == null || !mobilePub.isAvailable
-    ? Colors.grey.shade800
-        : Colors.orangeAccent,
-    ),
-    onPressed:
-    mobilePub == null || !mobilePub.isAvailable ? null : _requestMobileUnit,
-    ),
+            // ✅ Nutzer ist eingecheckt
+            if (currentPubId != null) {
+              final currentPub = PubManager().getPubById(currentPubId);
+              return Column(
+                children: [
+                  Text(
+                    "🍻 Du bist aktuell eingecheckt in:",
+                    style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    currentPub?.name ?? "Unbekannt",
+                    style: const TextStyle(
+                      color: Colors.orangeAccent,
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.exit_to_app),
+                    label: const Text("Auschecken"),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                    onPressed: () => _checkOutGuest(SessionManager().guestId, currentPubId),
+                  ),
+                ],
+              );
+            }
+
+            // ✅ Kein Check-In → nächste Kneipe zeigen
+            return Column(
+              children: [
+                Text(
+                  "🧭 Nächste noch nicht besuchte Kneipe:",
+                  style: TextStyle(color: Colors.grey[400], fontSize: 14),
+                ),
+                const SizedBox(height: 6),
+
+                GestureDetector(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => PubInfoScreen(
+                          pub: nextPub,
+                          guestId: SessionManager().guestId,
+                          onCheckIn: _checkInGuest,
+                          onCheckOut: _checkOutGuest,
+                        ),
+                      ),
+                    ).then((result) async {
+                      if (!mounted) return;
+                      if (result is Map && result['changed'] == true) {
+                        await _maybeUpdateNextPub();
+                        setState(() {});
+                      }
+                    });
+                  },
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Image.asset(
+                        nextPub.iconPath.isNotEmpty ? nextPub.iconPath : 'assets/icons/default_pub.png',
+                        width: 36,
+                        height: 36,
+                        errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.local_bar, color: Colors.orangeAccent, size: 30),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        nextPub.name,
+                        style: const TextStyle(
+                          color: Colors.orangeAccent,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 6),
+                Text("$distance m entfernt",
+                    style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                const SizedBox(height: 12),
+
+                // ✅ Check-in Button abhängig von Nähe
+                ValueListenableBuilder<bool>(
+                  valueListenable: SessionManager().isNearPub,
+                  builder: (_, near, __) {
+                    return ElevatedButton.icon(
+                      icon: Icon(near ? Icons.login : Icons.location_off),
+                      label: Text(near ? "Check-in starten" : "Keine Kneipe in der Nähe"),
+                      onPressed: near
+                          ? () => _checkInGuest(SessionManager().guestId, nextPub.id)
+                          : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: near ? Colors.green : Colors.grey.shade700,
+                      ),
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 12),
+
+                // 🚐 Mobile Einheit Button bleibt unverändert
+                StreamBuilder<bool>(
+                  stream: _mobileAvailableStream(),
+                  builder: (context, snap) {
+                    final isAvail = snap.data ?? (_mobilePubCached?.isAvailable ?? false);
+                    final label = !isAvail
+                        ? "🚨 Einheit unterwegs..."
+                        : "Mobile Einheit anfordern";
+
+                    return ElevatedButton.icon(
+                      icon: const Icon(Icons.medical_services),
+                      label: Text(label),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isAvail ? Colors.orangeAccent : Colors.grey.shade800,
+                      ),
+                      onPressed: isAvail ? _requestMobileUnit : null,
+                    );
+                  },
+                )
+
+              ],
+            );
+          },
+        )
       ],
     );
+  }
+
+  Stream<bool> _mobileAvailableStream() {
+    return FirebaseFirestore.instance
+        .collection('pubs')
+        .where('isMobileUnit', isEqualTo: true)
+        .limit(1)
+        .snapshots()
+        .map((qs) {
+      if (qs.docs.isEmpty) return false;
+      final d = qs.docs.first.data();
+      return (d['isAvailable'] ?? true) == true;
+    });
   }
 
 
@@ -1017,6 +998,8 @@ class _HomeScreenState extends State<HomeScreen> {
         const SnackBar(content: Text("✅ Erfolgreich ausgecheckt!")),
       );
       await _maybeUpdateNextPub();
+      if(!mounted)return true;
+
       setState(() {});
 
       return true;
@@ -1049,9 +1032,10 @@ class _HomeScreenState extends State<HomeScreen> {
       longitude: loc.longitude,
     );
 
+    Pub? pub=PubManager().getPubById(pubId);
     if (ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("🍻 Du bist jetzt in $pubId!")),
+        SnackBar(content: Text("🍻 Du bist jetzt in {$pub.name}!")),
       );
 
       SessionManager().currentPubId.value = pubId; // ← Falls nicht gesetzt
@@ -1063,27 +1047,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return ok;
   }
 
-  void _showAchievementPopup(BuildContext context, String id) {
-    final achievement = AchievementManager()
-        .achievements
-        .firstWhere((a) => a.id == id);
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) {
-        Future.delayed(const Duration(seconds: 3), () {
-          Navigator.of(context).pop();
-        });
-        return AchievementPopup(achievement: achievement);
-      },
-    );
-  }
-
-
-
-
-  Future<Pub?> _getNextUnvisitedPub() async {
+    Future<Pub?> _getNextUnvisitedPub() async {
     final openPubs = PubManager().allPubs.where((p) => p.isOpen && !p.isMobileUnit).toList();
     final pos = SessionManager().lastKnownLocation.value;
 
@@ -1116,6 +1080,58 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     return openPubs.first;
+  }
+
+  void _updateSelfMarker() {
+    final pos = SessionManager().lastKnownLocation.value;
+    if (pos == null || _currentLocationIcon == null) return;
+
+    final marker = Marker(
+      markerId: const MarkerId('current_location'),
+      position: LatLng(pos.latitude, pos.longitude),
+      icon: _currentLocationIcon!,
+      infoWindow: const InfoWindow(title: 'Du bist hier 🍻'),
+      zIndex: 9999,
+    );
+
+    _selfMarker = marker;
+    if (mounted) {
+      setState(() {
+        // nichts weiter – wir legen _selfMarker separat in _buildMap dazu
+      });
+    }
+  }
+
+  void _showAchievementPopup(Achievement achievement) {
+    final overlay = Overlay.of(context);
+
+    late OverlayEntry entry; // 👈 Deklaration VOR dem Builder
+
+    entry = OverlayEntry(
+      builder: (context) => Stack(
+        children: [
+          // Halbtransparenter Hintergrund – Tipp: Popup mit Tap schließen
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () => entry.remove(), // ✅ funktioniert jetzt
+              child: Container(color: Colors.black54),
+            ),
+          ),
+
+          // Dein Konfetti-Popup
+          Center(
+            child: AchievementPopup(achievement: achievement),
+          ),
+        ],
+      ),
+    );
+
+    overlay.insert(entry);
+
+    // Nach 4 Sekunden automatisch entfernen
+    Future.delayed(const Duration(seconds: 4), () {
+      if (entry.mounted) entry.remove();
+    });
   }
 
 }

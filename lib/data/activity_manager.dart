@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/services.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:kneipentour/config/location_config.dart';
 import 'package:kneipentour/data/achievement_manager.dart';
 import 'package:kneipentour/data/challenge_manager.dart';
@@ -8,9 +8,6 @@ import 'package:kneipentour/data/session_manager.dart';
 import 'package:kneipentour/models/achievement.dart';
 import 'package:kneipentour/models/pub.dart';
 import '../models/activity.dart';
-import 'dart:convert';
-import 'package:googleapis_auth/auth_io.dart' as auth;
-
 
 
 class ActivityManager {
@@ -171,95 +168,68 @@ class ActivityManager {
   Future<void> sendPushToMobileUnit({
     required String guestName,
   }) async {
-    // 1. Token laden
     final doc = await FirebaseFirestore.instance
         .collection('mobile_unit')
         .doc('status')
         .get();
 
     final token = doc.data()?['fcmToken'];
-    if (token == null) {
-      print("⚠️ Kein Mobile-Unit-Token gespeichert -> Keine Push möglich");
-      return;
-    }
+
     if (token == null || token.trim().isEmpty) {
-      print("❌ Kein gültiger FCM Token vorhanden → Push wird übersprungen");
+      print("⚠️ Kein gültiger Mobile-Unit Token → keine Push möglich");
       return;
     }
-    _sendPushMessage(token: token,title:"🚨 Mobile Einheit benötigt!",body:"$guestName braucht Unterstützung!");
+
+    try {
+      final callable = FirebaseFunctions.instance.httpsCallable("sendPushToMobileUnit");
+      await callable.call({
+        "token": token,
+        "title": "🚨 Mobile Einheit benötigt!",
+        "body": "$guestName braucht Unterstützung!",
+        "guestName": guestName,
+      });
+      print("🚨 Push an Mobile Einheit gesendet");
+    } catch (e) {
+      print("❌ Fehler beim Senden: $e");
+    }
 
   }
+
 
   Future<void> sendPushToGuest({
     required String guestId,
     required String title,
     required String message,
   }) async {
-    final snap = await FirebaseFirestore.instance.collection('guests').doc(guestId).get();
+    final snap = await FirebaseFirestore.instance
+        .collection('guests')
+        .doc(guestId)
+        .get();
+
     final token = snap.data()?['fcmToken'];
 
-    if (token == null) {
-      print("⚠️ Gast $guestId hat keinen Token → keine Push");
+    if (token == null || token.trim().isEmpty) {
+      print("⚠️ Gast $guestId hat keinen gültigen Token");
       return;
     }
 
-    await _sendPushMessage(
-      token: token,
-      title: title,
-      body: message,
-    );
-  }
-
-  Future<void> _sendPushMessage({
-    required String token, required String title, required String body
-  }) async {
-    // 1. Token laden
-
-    // Service Account laden
-    final serviceAccount = jsonDecode(
-      await rootBundle.loadString('assets/service-account.json'),
-    );
-
-    final accountCredentials =
-    auth.ServiceAccountCredentials.fromJson(serviceAccount);
-
-    final client = await auth.clientViaServiceAccount(
-      accountCredentials,
-      ['https://www.googleapis.com/auth/firebase.messaging'],
-    );
-
-    final projectId = serviceAccount["project_id"];
-
-    final url = Uri.parse(
-      "https://fcm.googleapis.com/v1/projects/$projectId/messages:send",
-    );
-
-    final payload = {
-      "message": {
+    try {
+      print("Aufruf Push: $token, $title, $message, $guestId");
+      final callable = FirebaseFunctions.instance.httpsCallable("sendPushToGuest");
+      await callable.call({
         "token": token,
-        "data": {
-          "type": "push",
-          "guestName": SessionManager().guestId,
-        },
-        // 👉 Sobald Icon gefixt → diesen Block wieder aktivieren:
-
-      "notification": {
         "title": title,
-        "body": body
-      }
-      }
-    };
+        "body": message,
+        "guestId":guestId,
+      });
 
-    final response = await client.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(payload),
-    );
-
-    print("📡 Push Antwort ${response.statusCode}: ${response.body}");
-
-    client.close();
+      print("📨 Push an $guestId gesendet");
+    } catch (e) {
+      print("❌ Fehler beim Senden an Gast $guestId: $e");
+    }
   }
+
+
 
   Future<void> broadcastPush({
     required String title,
@@ -267,17 +237,26 @@ class ActivityManager {
   }) async {
     final snap = await FirebaseFirestore.instance.collection('guests').get();
 
+    final callable = FirebaseFunctions.instance.httpsCallable("sendPushToGuest");
+
     for (var doc in snap.docs) {
       final token = doc.data()['fcmToken'];
-      if (token != null) {
-        await _sendPushMessage(
-          token: token,
-          title: title,
-          body: message,
-        );
+      if (token == null || token.trim().isEmpty) continue;
+
+      try {
+        await callable.call({
+          "token": token,
+          "title": title,
+          "body": message,
+        });
+      } catch (e) {
+        print("⚠️ Fehler beim Push an ${doc.id}: $e");
       }
     }
+
+    print("📣 Broadcast abgeschlossen");
   }
+
   Future<int> getActiveCheckInsForPub(String pubId) async {
     final snap = await FirebaseFirestore.instance
         .collection('activities')

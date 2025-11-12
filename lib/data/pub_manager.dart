@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:kneipentour/config/location_config.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../models/pub.dart';
 
@@ -150,6 +151,17 @@ class PubManager {
       return null;
     }
   }
+
+  Pub? getNearestPub(double lat, double lon) {
+    if (allPubs.isEmpty) return null;
+    allPubs.sort((a, b) =>
+        LocationConfig.calculateDistance(lat, lon, a.latitude, a.longitude)
+            .compareTo(
+            LocationConfig.calculateDistance(lat, lon, b.latitude, b.longitude)
+        ));
+    return allPubs.first;
+  }
+
 
 
 

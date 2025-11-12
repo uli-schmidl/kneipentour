@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:kneipentour/data/achievement_manager.dart';
 import 'package:kneipentour/data/activity_manager.dart';
 import 'package:flutter_paypal_payment/flutter_paypal_payment.dart';
@@ -97,7 +98,7 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
       });
 
       // 🔙 HomeScreen signalisieren: es gab eine Änderung
-      if (mounted) Navigator.pop(context, {'changed': true, 'action': 'checkin', 'pubId': widget.pub.id});
+      if (mounted) Navigator.pop(context, PubAction.checkedIn);
     }
   }
 
@@ -114,7 +115,7 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
     });
 
 // 🔙 Änderung melden
-    if (mounted) Navigator.pop(context, {'changed': true, 'action': 'checkout', 'pubId': widget.pub.id});
+    if (mounted) Navigator.pop(context, PubAction.checkedOut);
   }
 
   @override
@@ -293,6 +294,9 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
       payment: payment,
     );
 
+    if (mounted) Navigator.pop(context, PubAction.drink);
+
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
@@ -412,20 +416,56 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
                   Center(
                     child: Column(
                       children: [
-                        ElevatedButton.icon(
-                          icon: Icon(isCheckedIn ? Icons.exit_to_app : Icons.login),
-                          label: Text(isCheckedIn ? "Auschecken" : "Check-in starten"),
-                          onPressed: isCheckedIn ? _handleCheckOut : _handleCheckIn,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: isCheckedIn ? Colors.red : Colors.green,
-                          ),
+
+                        // ✅ CHECK-IN / CHECK-OUT Button mit Nähe-Check
+                        ValueListenableBuilder<Position?>(
+                          valueListenable: SessionManager().lastKnownLocation,
+                          builder: (_, pos, __) {
+                            final bool isNearThisPub;
+                            if (pos == null) {
+                              isNearThisPub = false;
+                            } else {
+                              final distance = Geolocator.distanceBetween(
+                                pos.latitude,
+                                pos.longitude,
+                                widget.pub.latitude,
+                                widget.pub.longitude,
+                              );
+                              isNearThisPub = distance <= 50; // z. B. 50 m Radius
+                            }
+
+                            if (isCheckedIn) {
+                              // 🔴 Auschecken immer möglich
+                              return ElevatedButton.icon(
+                                icon: const Icon(Icons.exit_to_app),
+                                label: const Text("Auschecken"),
+                                onPressed: _handleCheckOut,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+
+                            // 🟢 Check-In (nur wenn nah genug)
+                            return ElevatedButton.icon(
+                              icon: Icon(isNearThisPub ? Icons.login : Icons.location_off),
+                              label: Text(
+                                isNearThisPub ? "Check-in starten" : "Keine Kneipe in der Nähe",
+                              ),
+                              onPressed: isNearThisPub ? _handleCheckIn : null,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: isNearThisPub ? Colors.green : Colors.grey.shade700,
+                              ),
+                            );
+                          },
                         ),
+
+
+                        // 🌐 Offline-QR-Checkin (nur sichtbar wenn Offline)
                         StreamBuilder<bool>(
                           stream: ConnectionService().connectivityStream,
                           builder: (context, snapshot) {
                             final isOnline = snapshot.data ?? true;
-
-                            // ✅ Button nur anzeigen, wenn OFFLINE
                             if (isOnline) return const SizedBox.shrink();
 
                             return ElevatedButton.icon(
@@ -444,7 +484,7 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
 
                         const SizedBox(height: 12),
 
-                        // 🔹 Nur der Button rebuildet über ValueListenableBuilder
+                        // 🍺 Getränke Button (mit Cooldown)
                         StreamBuilder<int>(
                           stream: _drinksConsumedStream(widget.guestId, widget.pub.id),
                           builder: (context, snapshot) {
@@ -456,15 +496,13 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
                                 final onCooldown = seconds > 0;
 
                                 return ElevatedButton.icon(
-                                  onPressed: (!onCooldown &&
-                                      widget.pub.isOpen &&
-                                      isCheckedIn)
-                                    ? () => _showPaymentChoiceDialog(
-                                      context,
-                                      widget.pub.id,
-                                      widget.pub.name,
-                                    )
-                                    : null,
+                                  onPressed: (!onCooldown && widget.pub.isOpen && isCheckedIn)
+                                      ? () => _showPaymentChoiceDialog(
+                                    context,
+                                    widget.pub.id,
+                                    widget.pub.name,
+                                  )
+                                      : null,
                                   icon: const Icon(Icons.local_drink),
                                   label: Text(
                                     onCooldown
@@ -508,3 +546,5 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
     );
   }
 }
+enum PubAction { checkedIn, checkedOut, drink, cash,paypal,qrCheckin }
+

@@ -58,9 +58,15 @@ void main() async{
       await SyncManager.processPendingActions();
     }
   });
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
 
   runApp(const KneipentourApp());
+}
+
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  print("📬 Hintergrund-Nachricht erhalten: ${message.notification?.title}");
 }
 
 class KneipentourApp extends StatelessWidget {

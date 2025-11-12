@@ -23,13 +23,13 @@ class _StartScreenState extends State<StartScreen> {
   bool _loading = true;
   bool _isWithinAllowedArea = false;
   VoidCallback? _locationListener;
-
+  String? _savedName;
 
   @override
   void initState() {
     super.initState();
+    _loadSavedName();
     _startLocationWatcher(); // <-- immer starten!
-    _checkExistingUser();
     _generateRandomName();
   }
 
@@ -43,17 +43,27 @@ class _StartScreenState extends State<StartScreen> {
   }
 
 
-  Future<void> _checkExistingUser() async {
+  Future<void> _loadSavedName() async {
     final prefs = await SharedPreferences.getInstance();
     final savedName = prefs.getString('guestId');
+    print("🔁 Nutzer gefunden: $savedName – warte auf Standort...");
 
+    if (savedName != null && savedName.isNotEmpty) {
+        _savedName = savedName;
+        _nameController.text = savedName;
+    }
+    _checkExistingUser();
+
+  }
+
+
+  Future<void> _checkExistingUser() async {
     // Falls kein gespeicherter Nutzer → keine Auto-Login-Logik
-    if (savedName == null) {
+    if (_savedName == null) {
       setState(() => _loading = false);
       return;
     }
 
-    print("🔁 Nutzer gefunden: $savedName – warte auf Standort...");
 
     // ✅ Auf ersten gültigen Standort warten (max 8 Sekunden)
     Position? pos;
@@ -89,11 +99,11 @@ class _StartScreenState extends State<StartScreen> {
     }
 
     // ✅ Auto-Login jetzt sauber möglich
-    SessionManager().initGuest(guestId: savedName);
+    SessionManager().initGuest(guestId: _savedName!);
 
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => HomeScreen(userName: savedName)),
+      MaterialPageRoute(builder: (_) => HomeScreen(userName: _savedName!)),
     );
   }
 
@@ -127,7 +137,6 @@ class _StartScreenState extends State<StartScreen> {
   void _maybeNavigateToHome() {
     if (!_isWithinAllowedArea) return;
 
-    final prefs = SessionManager().guestId;
     if (SessionManager().guestId.isEmpty) return;
 
     // ✅ verhindern, dass mehrmals navigiert wird
@@ -205,7 +214,7 @@ class _StartScreenState extends State<StartScreen> {
       newName = "${adjectives[rnd.nextInt(adjectives.length)]}${nouns[rnd.nextInt(nouns.length)]}";
       exists = await GuestManager().nameExists(newName);
     } while (exists);
-
+if(!mounted)return;
     setState(() => generatedName = newName);
   }
 
@@ -282,7 +291,7 @@ class _StartScreenState extends State<StartScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-
+                  if (_savedName == null)
                   TextButton(
                     onPressed: _generateRandomName,
                     child: const Text(
