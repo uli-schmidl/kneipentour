@@ -24,6 +24,7 @@ import 'package:kneipentour/screens/info_screen.dart';
 import 'package:kneipentour/screens/pub_info_screen.dart';
 import 'package:kneipentour/screens/ranking_screen.dart';
 import 'package:kneipentour/screens/stamp_screen.dart';
+import 'package:kneipentour/util/Utilities.dart';
 import 'package:kneipentour/widgets/achievement_popup.dart';
 import '../models/pub.dart';
 
@@ -38,7 +39,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
-  GoogleMapController? _mapController;
 
 // Marker-Sets
   final Set<Marker> _pubMarkers = {};
@@ -86,7 +86,6 @@ class _HomeScreenState extends State<HomeScreen> {
       SessionManager().lastKnownLocation.removeListener(_locationListener!);
       _locationListener = null;
     }
-    _mapController?.dispose();
     super.dispose();
   }
 
@@ -542,22 +541,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final startPos = LatLng(pos.latitude, pos.longitude);
 
-    const String darkMapStyle = '''
-[
-  {"elementType": "geometry", "stylers": [{"color": "#212121"}]},
-  {"elementType": "labels.icon", "stylers": [{"visibility": "off"}]},
-  {"elementType": "labels.text.fill", "stylers": [{"color": "#757575"}]},
-  {"elementType": "labels.text.stroke", "stylers": [{"color": "#212121"}]},
-  {"featureType": "administrative", "elementType": "geometry", "stylers": [{"color": "#757575"}]},
-  {"featureType": "road", "elementType": "geometry.fill", "stylers": [{"color": "#4c4c4c"}]},
-  {"featureType": "road", "elementType": "geometry.stroke", "stylers": [{"color": "#1c1c1c"}]},
-  {"featureType": "road", "elementType": "labels.text.fill", "stylers": [{"color": "#8a8a8a"}]},
-  {"featureType": "water", "elementType": "geometry", "stylers": [{"color": "#000000"}]},
-  {"featureType": "water", "elementType": "labels.text.fill", "stylers": [{"color": "#3d3d3d"}]},
-  {"featureType": "poi", "elementType": "all", "stylers": [{ "visibility": "off" }]},
-  {"featureType": "transit", "elementType": "all", "stylers": [{ "visibility": "off" }]}
-]
-''';
+
 
     final markers = <Marker>{
       ..._pubMarkers,
@@ -570,12 +554,7 @@ class _HomeScreenState extends State<HomeScreen> {
       initialCameraPosition: CameraPosition(target: startPos, zoom: 15),
       myLocationEnabled: false,
       myLocationButtonEnabled: true,
-      onMapCreated: (c) {
-        _mapController = c;
-        try {
-          _mapController?.setMapStyle(darkMapStyle);
-        } catch (_) {}
-      },
+      style: Utilities.darkMapStyle,
       markers: markers,
     );
   }

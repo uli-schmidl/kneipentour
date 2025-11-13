@@ -8,6 +8,7 @@ import 'package:kneipentour/data/challenge_manager.dart';
 import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/data/pub_manager.dart';
 import 'package:kneipentour/models/achievement.dart';
+import 'package:kneipentour/models/pub.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
@@ -34,8 +35,14 @@ class SessionManager {
   // Globale Standort-Info (wird laufend aktualisiert)
   ValueNotifier<Position?> lastKnownLocation = ValueNotifier(null);
   Timer? _autoCheckoutTimer;
+  Timer? _idleLocationTimer;
+
   final ValueNotifier<bool> isNearPub = ValueNotifier<bool>(false);
 
+// Auto-Checkin
+  Pub? _nearPubCandidate;
+  DateTime? _nearSince;
+  bool _autoCheckinReminderSent = false;
 
 
 
@@ -67,8 +74,6 @@ class SessionManager {
     // Speichere in SharedPreferences oder Firestore, je nach Implementierung
   }
 
-
-
   Future<void> clearSession() async {
     _guestId = '';
     // optional: SharedPreferences oder SecureStorage leeren
@@ -76,7 +81,7 @@ class SessionManager {
     // await prefs.clear();
   }
 
-  Future<void> startLocationUpdates() async {
+    Future<void> startLocationUpdates() async {
     print("🚀 startLocationUpdates() wurde aufgerufen");
     final permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied ||
@@ -116,6 +121,9 @@ class SessionManager {
         isNearPub.value = false;
       }
       await _checkAutoCheckout(pos);
+
+
+      await _checkAutoCheckin();
       GuestManager().updateGuestLocation(guestId: _guestId!, latitude: lastKnownLocation.value!.latitude, longitude: lastKnownLocation.value!.longitude);
       AchievementManager().notifyAction(
         AchievementEventType.locationUpdate,
@@ -125,7 +133,31 @@ class SessionManager {
 // 🎯 Challenges prüfen
       ChallengeManager().evaluateProgress(_guestId!);
     });
+    _idleLocationTimer = Timer.periodic(
+      const Duration(seconds: 20),
+          (_) => _checkAutoCheckinIdle(),
+    );
   }
+  Future<void> _checkAutoCheckinIdle() async {
+    try {
+      // Standort aktiv abrufen
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+
+      // Falls sich Standort nicht stark geändert hat → trotzdem weiterprüfen
+      final prev = lastKnownLocation.value;
+      lastKnownLocation.value = pos; // löst normale Listener auch aus
+
+      // Auto-Checkin-Logik manuell triggern
+      await _checkAutoCheckin();
+
+    } catch (e) {
+      print("⚠️ Idle check konnte Standort nicht holen: $e");
+    }
+  }
+
+
 
   Future<void> _checkAutoCheckout(Position pos) async {
       final pubId = currentPubId.value;
@@ -196,5 +228,71 @@ class SessionManager {
         _autoCheckoutTimer = null;
       });
   }
+
+  Future<void> _checkAutoCheckin() async {
+    final pos = lastKnownLocation.value;
+    if (pos == null) return;
+
+    // Bereits eingecheckt → Auto-Checkin Reminder deaktivieren
+    if (currentPubId.value != null) {
+      _nearPubCandidate = null;
+      _nearSince = null;
+      _autoCheckinReminderSent = false;
+      return;
+    }
+
+    // Nächste Kneipe unter 20 m suchen
+    final pubs = PubManager().allPubs.where((p) => p.isOpen && !p.isMobileUnit);
+
+    Pub? closePub;
+    for (final pub in pubs) {
+      final dist = LocationConfig.calculateDistance(
+        pos.latitude, pos.longitude, pub.latitude, pub.longitude,
+      );
+
+      if (dist <= 20) {
+        print("Nahe Kneipe gefunden: ${pub.name}: $dist m");
+        closePub = pub;
+        break;
+      }
+    }
+
+    // Keine Kneipe nah → reset
+    if (closePub == null) {
+      _nearPubCandidate = null;
+      _nearSince = null;
+      _autoCheckinReminderSent = false;
+      return;
+    }
+
+    // Wenn neue Kneipe entdeckt
+    if (_nearPubCandidate?.id != closePub.id) {
+      print("Pub alt: ${_nearPubCandidate?.name}, Pub neu: ${closePub.name}");
+
+      _nearPubCandidate = closePub;
+      _nearSince = DateTime.now();
+      _autoCheckinReminderSent = false;
+      return;
+    }
+    print("Gast in der nähe von ${_nearPubCandidate?.name}");
+
+    // 1 Minute ununterbrochen im 20-m-Radius bleiben
+    if (_nearSince != null &&
+        !_autoCheckinReminderSent &&
+        DateTime.now().difference(_nearSince!) > const Duration(minutes: 1)) {
+
+      _autoCheckinReminderSent = true;
+
+      // Push senden
+      await ActivityManager().sendPushToGuest(
+        guestId: guestId,
+        title: "🍺 Check-in Erinnerung",
+        message: "Du bist anscheinend in ${closePub.name}. Möchtest du einchecken?",
+      );
+
+      print("📨 Auto-Checkin Reminder für $guestId und Kneipe ${closePub.name} gesendet!");
+    }
+  }
+
 
 }
