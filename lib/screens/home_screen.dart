@@ -310,7 +310,27 @@ class _HomeScreenState extends State<HomeScreen> {
           markerId: MarkerId(pub.id),
           position: LatLng(pub.latitude, pub.longitude),
           icon: icon,
-          infoWindow: InfoWindow(
+          zIndexInt: pub.isMobileUnit ? 100 : 50,
+          onTap: () async {
+            final result = await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => PubInfoScreen(
+                  pub: pub,
+                  guestId: SessionManager().guestId,
+                  onCheckIn: _checkInGuest,
+                  onCheckOut: _checkOutGuest,
+                ),
+              ),
+            );
+
+            if (result == PubAction.checkedIn || result == PubAction.checkedOut || result == PubAction.drink) {
+              _listenToGuestsAndActivities();
+              _listenActiveFillLevels();
+            }
+          },
+
+          /*infoWindow: InfoWindow(
             title: pub.name,
             snippet: fullnessText,
             onTap: () async {
@@ -334,7 +354,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 _listenActiveFillLevels();
               }
             },
-          ),
+          ),*/
         );
 
         if (pub.isMobileUnit) {
@@ -516,13 +536,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final pos = SessionManager().lastKnownLocation.value;
     if (pos == null) return;
 
-    final nextPub = await _getNextUnvisitedPub();
-    if (nextPub == null) return;
+    Pub? nextPub = await _getNextUnvisitedPub();
+    nextPub ??= _getNextPub();
 
     // ⚡️ Nur wenn sich etwas ändert, UI aktualisieren
     if(!mounted)return;
 
-    if (_cachedNextPub == null || _cachedNextPub!.id != nextPub.id) {
+    if (_cachedNextPub == null || _cachedNextPub!.id != nextPub!.id) {
       setState(() {
         _cachedNextPub = nextPub;
       });
@@ -676,7 +696,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           // Karte nimmt 2/3 des Bildschirms ein
           SizedBox(
-            height: MediaQuery.of(context).size.height * 0.6,
+            height: MediaQuery.of(context).size.height * 0.5,
             child: _buildMap(),
           ),
 
@@ -687,14 +707,10 @@ class _HomeScreenState extends State<HomeScreen> {
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               child: Center(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
                   child: ValueListenableBuilder<String?>(
                     valueListenable: SessionManager().currentPubId,
                     builder: (_, currentPubId, ___) => _buildNextPubSection(),
                   ),
-
-                ),
               ),
             ),
           ),
@@ -722,10 +738,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildNextPubSection() {
     final currentPubId = SessionManager().currentPubId.value;
 
+
     // 🟢 FALL 1: Nutzer ist aktuell in einer Kneipe
     if (currentPubId != null) {
       final pub = PubManager().allPubs.firstWhere((p) => p.id == currentPubId);
-
+      final guests = _activeCounts[pub.id] ?? 0;
+      final fill = guests / pub.capacity;
       return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -791,16 +809,14 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // 🟡 FALL 2: Nutzer ist NICHT in einer Kneipe → nächste unbesuchte Kneipe anzeigen
+    _cachedNextPub ??= _getNextPub();
     final nextPub = _cachedNextPub;
-    if (nextPub == null) {
-      final fallback = _getNextPub();
-      return Text(fallback!.name);
-    }
+
 
     final distance = LocationConfig.calculateDistance(
       _currentLocation?.latitude ?? 0,
       _currentLocation?.longitude ?? 0,
-      nextPub.latitude,
+      nextPub!.latitude,
       nextPub.longitude,
     ).round();
 
@@ -840,12 +856,29 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               );
             }
+            final guests = _activeCounts[nextPub.id] ?? 0;
+
+            final capacity = nextPub.capacity;
+            final fill = capacity > 0 ? (guests / capacity) : 0.0;
+
+            // 🔥 Farben + Text wie im PubInfoScreen
+            late Color barColor;
+
+            if (fill < 0.5) {
+              barColor = Colors.greenAccent;
+            } else if (fill < 0.75) {
+              barColor = Colors.orangeAccent;
+            } else if (fill < 1) {
+              barColor = Colors.redAccent;
+            } else {
+              barColor = Colors.redAccent;
+            }
 
             // ✅ Kein Check-In → nächste Kneipe zeigen
             return Column(
               children: [
                 Text(
-                  "🧭 Nächste noch nicht besuchte Kneipe:",
+                  "🧭 Nächste Kneipe ($distance m entfernt):",
                   style: TextStyle(color: Colors.grey[400], fontSize: 14),
                 ),
                 const SizedBox(height: 6),
@@ -893,10 +926,24 @@ class _HomeScreenState extends State<HomeScreen> {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 6),
-                Text("$distance m entfernt",
-                    style: const TextStyle(color: Colors.white70, fontSize: 16)),
+                SizedBox(
+                  width: double.infinity,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: LinearProgressIndicator(
+                      value: fill.clamp(0, 1),
+                      minHeight: 14,
+                      backgroundColor: Colors.white24,
+                      valueColor: AlwaysStoppedAnimation(barColor),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  "$guests / $capacity",
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
                 const SizedBox(height: 12),
 
                 // ✅ Check-in Button abhängig von Nähe
@@ -937,7 +984,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                   },
                 )
-
               ],
             );
           },

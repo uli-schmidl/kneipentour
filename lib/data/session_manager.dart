@@ -251,7 +251,6 @@ class SessionManager {
       );
 
       if (dist <= 20) {
-        print("Nahe Kneipe gefunden: ${pub.name}: $dist m");
         closePub = pub;
         break;
       }
@@ -267,14 +266,11 @@ class SessionManager {
 
     // Wenn neue Kneipe entdeckt
     if (_nearPubCandidate?.id != closePub.id) {
-      print("Pub alt: ${_nearPubCandidate?.name}, Pub neu: ${closePub.name}");
-
       _nearPubCandidate = closePub;
       _nearSince = DateTime.now();
       _autoCheckinReminderSent = false;
       return;
     }
-    print("Gast in der nähe von ${_nearPubCandidate?.name}");
 
     // 1 Minute ununterbrochen im 20-m-Radius bleiben
     if (_nearSince != null &&
