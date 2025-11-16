@@ -1,5 +1,3 @@
-# DO NOT MODIFY -- FLUTTER GENERATED FILE
-
 platform :ios, '15.0'
 
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -10,7 +8,8 @@ project 'Runner', {
   'Release' => :release,
 }
 
-flutter_root = File.expand_path(File.join('..', '..', 'flutter'), __dir__)
+# 👉 WICHTIG: Flutter Root automatisch über FLUTTER_ROOT aus environment
+flutter_root = ENV['FLUTTER_ROOT']
 load File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
 
 target 'Runner' do
