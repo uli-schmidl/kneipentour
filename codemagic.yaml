@@ -9,9 +9,9 @@ workflows:
       xcode: latest
     scripts:
       - name: Debug Flutter Path
-      - script: |
-      - echo "FLUTTER_ROOT = $FLUTTER_ROOT"
-      - ls -la $FLUTTER_ROOT/packages/flutter_tools/bin || true
+        script: |
+          echo "FLUTTER_ROOT = $FLUTTER_ROOT"
+          ls -la $FLUTTER_ROOT/packages/flutter_tools/bin || true
       # ---------- FIX PODFILE AUTOMATISCH ----------
       - name: Patch Podfile for Codemagic
         script: |
