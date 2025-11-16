@@ -67,4 +67,4 @@ workflows:
     publishing:
       email:
         recipients:
-          - uli-schmidl@web.DE"
+          - "uli-schmidl@web.DE"
