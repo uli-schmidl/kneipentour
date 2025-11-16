@@ -1,88 +1,70 @@
 workflows:
-  ios_debug_ipa:
-    name: iOS Debug IPA (no codesign)
-    instance_type: mac_mini_m2
-    max_build_duration: 60
+  ios-build:
+    name: iOS IPA Build
     environment:
-      flutter: "stable"
+      vars:
+        LC_ALL: en_US.UTF-8
+        LANG: en_US.UTF-8
+      flutter: stable
       xcode: latest
     scripts:
-      - name: Show versions
-        script: |
-          flutter --version
-          dart --version
-          ruby --version
-          pod --version || true
 
-      - name: Get pub dependencies
-        script: flutter pub get
-
-      - name: Ensure iOS platform folder exists
+      # ---------- FIX PODFILE AUTOMATISCH ----------
+      - name: Patch Podfile for Codemagic
         script: |
-          # Falls ios/ fehlt (altes Projekt) → erzeugen
-          if [ ! -d "ios" ]; then
-            flutter create --platforms=ios .
-          fi
-
-      - name: Precache iOS artifacts and generate .ios (podhelper)
-        script: |
-          flutter precache --ios
-          # Ein erster Build erzeugt .ios/Flutter/podhelper.rb zuverlässig
-          flutter build ios --debug --no-codesign || true
-
-      - name: Write a clean Podfile (iOS 15 + correct podhelper path)
-        script: |
-          cat > ios/Podfile <<'PODFILE'
+          cat > ios/Podfile << 'EOF'
           platform :ios, '15.0'
 
-          flutter_application_path = File.expand_path('..', __dir__)
-          require File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb')
+          ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+          project 'Runner', {
+            'Debug' => :debug,
+            'Profile' => :release,
+            'Release' => :release,
+          }
+
+          flutter_root = File.expand_path(File.join('..', '..', 'flutter'), __dir__)
+          load File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
 
           target 'Runner' do
-            flutter_ios_podfile_setup
             use_frameworks!
             use_modular_headers!
-            flutter_install_all_ios_pods(flutter_application_path)
+
+            flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
           end
 
           post_install do |installer|
-            flutter_post_install(installer)
-            installer.pods_project.targets.each do |target|
-              target.build_configurations.each do |config|
-                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-                config.build_settings['ENABLE_BITCODE'] = 'NO'
-              end
-            end
+            flutter_additional_ios_build_settings(installer)
           end
-          PODFILE
+          EOF
 
-      - name: Bump iOS deployment target inside Xcode project too
+      # ---------- CLEAN ----------
+      - name: Flutter clean
         script: |
-          # Setze iOS 15 auch im Xcode-Projekt (zusätzlich zum Podfile)
-          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]\+;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' ios/Runner.xcodeproj/project.pbxproj || true
-          # Und im AppFramework (falls vorhanden)
-          /usr/libexec/PlistBuddy -c "Set :MinimumOSVersion 15.0" ios/Flutter/AppFrameworkInfo.plist 2>/dev/null || true
+          flutter clean
 
-      - name: Clean & install CocoaPods
+      # ---------- GET PACKAGES ----------
+      - name: Flutter pub get
+        script: |
+          flutter pub get
+
+      # ---------- iOS PODS INSTALL ----------
+      - name: Run pod install
         script: |
           cd ios
-          pod deintegrate || true
-          rm -rf Pods Podfile.lock .symlinks
+          rm -rf Pods Podfile.lock
           pod repo update
-          pod install --verbose
-          cd ..
+          pod install
 
-      - name: Build unsigned IPA (Debug)
+      # ---------- BUILD IPA ----------
+      - name: Build IPA
         script: |
-          # Baut eine unsignierte IPA, die wir als Artefakt bekommen
-          flutter build ipa --debug --no-codesign
+          flutter build ipa --release
 
     artifacts:
       - build/ios/ipa/*.ipa
-      - build/ios/archive/*.xcarchive
-      - build/ios/**/*.log
 
     publishing:
       email:
         recipients:
-          - uli-schmidl@web.de
+          - uli-schmidl@web.DE"
