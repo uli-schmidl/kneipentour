@@ -66,6 +66,11 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
 
+    ios_signing:
+      distribution_type: app-store
+      bundle_identifier: "de.seitendorf.kneipentour"
+      automatic_signing: true
+
     publishing:
       email:
         recipients:
