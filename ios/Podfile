@@ -1,33 +1,25 @@
-# DO NOT MODIFY — GENERATED FOR FLUTTER 3.13+
+# DO NOT MODIFY -- FLUTTER GENERATED FILE
+
 platform :ios, '15.0'
 
-flutter_root = File.expand_path('~/flutter', __dir__)
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+flutter_root = File.expand_path(File.join('..', '..', 'flutter'), __dir__)
 load File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
 
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
 
-  flutter_ios_podfile_setup
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    flutter_additional_ios_build_settings(target)
-  end
-
-  # HARDCODED FIX: Entferne " -D COCOAPODS" aus allen xcconfig-Dateien
-  puts "🔧 Fixing OTHER_SWIFT_FLAGS in xcconfig files..."
-
-  Dir.glob("Pods/Target Support Files/**/*.xcconfig") do |file|
-    text = File.read(file)
-    new_text = text.gsub("-D COCOAPODS", "-DCOCOAPODS")
-    if text != new_text
-      File.open(file, "w") { |f| f.puts new_text }
-      puts "⚙️  Patched: #{file}"
-    end
-  end
+  flutter_additional_ios_build_settings(installer)
 end
-
-
