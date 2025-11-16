@@ -8,17 +8,12 @@ workflows:
       flutter: stable
       xcode: latest
     scripts:
-      - name: Debug Flutter Path
+      - name: Force Correct Podfile
         script: |
-          echo "FLUTTER_ROOT = $FLUTTER_ROOT"
-          ls -la $FLUTTER_ROOT/packages/flutter_tools/bin || true
-      # ---------- FIX PODFILE AUTOMATISCH ----------
-      - name: Patch Podfile for Codemagic
-        script: |
+          echo "Fixing Podfile…"
           rm -f ios/Podfile
           cat > ios/Podfile << 'EOF'
           platform :ios, '15.0'
-
           ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
           project 'Runner', {
@@ -38,9 +33,12 @@ workflows:
           end
 
           post_install do |installer|
-            flutter_additional_ios_build_settings(installer)
+            installer.pods_project.targets.each do |target|
+              flutter_additional_ios_build_settings(target)
+            end
           end
           EOF
+      
 
       # ---------- CLEAN ----------
       - name: Flutter clean
