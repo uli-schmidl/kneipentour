@@ -66,12 +66,12 @@ workflows:
     artifacts:
       - build/ios/ipa/*.ipa
 
-    ios_signing:
-      distribution_type: app-store
-      bundle_identifier: "de.seitendorf.kneipentour"
-      automatic_signing: true
-
     publishing:
       email:
         recipients:
           - "uli-schmidl@web.DE"
+
+    # 🔥 IMPORTANT: must be OUTSIDE workflows
+ios_signing:
+  apple_signing_type: automatic
+  bundle_identifier: "de.seitendorf.kneipentour"
