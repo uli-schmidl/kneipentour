@@ -55,6 +55,14 @@ workflows:
       # ❗️WICHTIG: Kein flutter build ipa, kein xcode_project
       # Codemagic UI übernimmt Build + Signing automatisch
 
+      - name: Fix Xcode build flags (remove invalid defines)
+        script: |
+          echo "Fixing Xcode build flags..."
+          sed -i '' '/GCC_PREPROCESSOR_DEFINITIONS/d' ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' '/SWIFT_ACTIVE_COMPILATION_CONDITIONS/d' ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' '/OTHER_SWIFT_FLAGS/d' ios/Runner.xcodeproj/project.pbxproj
+          sed -i '' '/OTHER_CFLAGS/d' ios/Runner.xcodeproj/project.pbxproj
+
       - name: Flutter build (iOS preparation)
         script: |
           flutter build ios --release --no-codesign
