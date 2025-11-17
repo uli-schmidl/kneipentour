@@ -96,7 +96,7 @@ workflows:
 
       - name: Build IPA
         script: |
-          flutter build ipa --release --no-codesign
+          flutter build ipa --release
 
 
     artifacts:
