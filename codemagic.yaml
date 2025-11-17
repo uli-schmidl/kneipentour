@@ -10,6 +10,38 @@ workflows:
         LANG: en_US.UTF-8
 
     scripts:
+      # ---------------------------------------------------------
+      # 1) Backup important iOS files before deleting ios/
+      # ---------------------------------------------------------
+      - name: Backup important iOS resources
+        script: |
+          echo "Backing up GoogleService-Info.plist and Assets..."
+          mkdir -p /tmp/ios_backup
+          cp ios/Runner/GoogleService-Info.plist /tmp/ios_backup/GoogleService-Info.plist || true
+          cp -R ios/Runner/Assets.xcassets /tmp/ios_backup/Assets.xcassets || true
+
+      # ---------------------------------------------------------
+      # 2) Remove corrupted ios folder & regenerate it
+      # ---------------------------------------------------------
+      - name: Regenerate iOS folder
+        script: |
+          echo "Removing corrupted ios folder..."
+          rm -rf ios
+
+          echo "Regenerating iOS platform..."
+          flutter create .
+
+      # ---------------------------------------------------------
+      # 3) Restore the important files we backed up
+      # ---------------------------------------------------------
+      - name: Restore GoogleService-Info.plist + Assets
+        script: |
+          echo "Restoring GoogleService-Info.plist..."
+          cp /tmp/ios_backup/GoogleService-Info.plist ios/Runner/GoogleService-Info.plist || true
+
+          echo "Restoring Assets.xcassets..."
+          rm -rf ios/Runner/Assets.xcassets
+          cp -R /tmp/ios_backup/Assets.xcassets ios/Runner/ || true
       - name: Fix Podfile
         script: |
           echo "Rewriting Podfile..."
