@@ -2,25 +2,20 @@ workflows:
   ios-build:
     name: iOS IPA Build
     environment:
+      flutter: stable
+      xcode: latest
       vars:
         LC_ALL: en_US.UTF-8
         LANG: en_US.UTF-8
-      flutter: stable
-      xcode: latest
+
     scripts:
-      - name: Force Correct Podfile
+      - name: Fix Podfile
         script: |
-          echo "Fixing Podfile…"
+          echo "Rewriting Podfile..."
           rm -f ios/Podfile
           cat > ios/Podfile << 'EOF'
           platform :ios, '15.0'
           ENV['COCOAPODS_DISABLE_STATS'] = 'true'
-
-          project 'Runner', {
-            'Debug' => :debug,
-            'Profile' => :release,
-            'Release' => :release,
-          }
 
           flutter_root = ENV['FLUTTER_ROOT']
           load File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
@@ -28,7 +23,6 @@ workflows:
           target 'Runner' do
             use_frameworks!
             use_modular_headers!
-
             flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
           end
 
@@ -38,27 +32,25 @@ workflows:
             end
           end
           EOF
-      
 
-      # ---------- CLEAN ----------
+      - name: Downgrade CocoaPods
+        script: |
+          sudo gem uninstall cocoapods --all --executables || true
+          sudo gem install cocoapods -v 1.12.1
+          pod --version
+
       - name: Flutter clean
-        script: |
-          flutter clean
+        script: flutter clean
 
-      # ---------- GET PACKAGES ----------
       - name: Flutter pub get
-        script: |
-          flutter pub get
+        script: flutter pub get
 
-      # ---------- iOS PODS INSTALL ----------
-      - name: Run pod install
+      - name: Pod install
         script: |
           cd ios
           rm -rf Pods Podfile.lock
-          pod repo update
           pod install
 
-      # ---------- BUILD IPA ----------
       - name: Build IPA
         script: |
           flutter build ipa --release
