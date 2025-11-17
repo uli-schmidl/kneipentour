@@ -31,7 +31,7 @@ workflows:
           echo "Regenerating iOS platform..."
           flutter create .
 
-      # ---------------------------------------------------------
+      # -----------------------------------------------------------
       # 3) Restore the important files we backed up
       # ---------------------------------------------------------
       - name: Restore GoogleService-Info.plist + Assets
