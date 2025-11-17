@@ -1,6 +1,7 @@
 workflows:
   ios-build:
     name: iOS IPA Build
+
     environment:
       flutter: stable
       xcode: latest
@@ -61,9 +62,9 @@ workflows:
     publishing:
       email:
         recipients:
-          - "uli-schmidl@web.DE"
+          - "uli-schmidl@web.de"
 
     # 🔥 IMPORTANT: must be OUTSIDE workflows
 ios_signing:
-  apple_signing_type: automatic
-  bundle_identifier: "de.seitendorf.kneipentour"
+  provisioning_profile: "Dist_xcode"
+  certificate: "Apple Distribution"
