@@ -1,6 +1,6 @@
 workflows:
   ios-build:
-    name: iOS IPA Build
+    name: "iOS Build"
 
     environment:
       flutter: stable
@@ -52,19 +52,18 @@ workflows:
           rm -rf Pods Podfile.lock
           pod install
 
-      - name: Build IPA
+      # ❗️WICHTIG: Kein flutter build ipa, kein xcode_project
+      # Codemagic UI übernimmt Build + Signing automatisch
+
+      - name: Flutter build (iOS preparation)
         script: |
-          flutter build ipa --release
+          flutter build ios --release --no-codesign
 
     artifacts:
-      - build/ios/ipa/*.ipa
+      - build/ios/**/*.ipa
+      - build/ios/archive/*.xcarchive
 
     publishing:
       email:
         recipients:
           - "uli-schmidl@web.de"
-
-    # 🔥 IMPORTANT: must be OUTSIDE workflows
-ios_signing:
-  provisioning_profile: "Dist_xcode"
-  certificate: "Apple Distribution"
