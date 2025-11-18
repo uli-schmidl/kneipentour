@@ -8,48 +8,16 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: "de.seitendorf.kneipentour"
-      vars:
-        LC_ALL: en_US.UTF-8
-        LANG: en_US.UTF-8
 
     scripts:
-      - name: Regenerate iOS folder
-        script: |
-          echo "Deleting iOS folder..."
-          rm -rf ios
-          
-          echo "Recreating iOS folder using Flutter..."
-          flutter create .
-          
-          echo "Restoring Firebase files..."
-          cp -f ./firebase/GoogleService-Info.plist ios/Runner/
-          cp -f ./firebase/Info.plist ios/Runner/Info.plist
 
-      - name: Show Flutter environment
+      - name: Show Flutter version
         script: flutter --version
 
-      - name: Fix Podfile
+      - name: Restore Firebase files
         script: |
-          cat > ios/Podfile << 'EOF'
-          platform :ios, '15.0'
-          ENV['COCOAPODS_DISABLE_STATS'] = 'true'
-
-          flutter_root = ENV['FLUTTER_ROOT']
-          load File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
-
-          target 'Runner' do
-            use_frameworks!
-            use_modular_headers!
-            flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-          end
-
-          post_install do |installer|
-            installer.pods_project.targets.each do |target|
-              flutter_additional_ios_build_settings(target)
-            end
-          end
-          EOF
-      
+          cp -f ./firebase/GoogleService-Info.plist ios/Runner/
+          cp -f ./firebase/Info.plist ios/Runner/Info.plist
 
       - name: Install CocoaPods 1.12.1
         script: |
@@ -57,27 +25,26 @@ workflows:
           sudo gem install cocoapods -v 1.12.1
           pod --version
 
-      - name: Flutter clean & pods
+      - name: Reset CocoaPods repo
         script: |
-          flutter clean
-          flutter pub get
-
-          echo "Resetting CocoaPods repo..."
           rm -rf ~/.cocoapods/repos
           pod repo add trunk https://cdn.cocoapods.org/
           pod repo update trunk --verbose
 
-          echo "Removing old Pods..."
+      - name: Flutter clean & pod install
+        script: |
+          flutter clean
+          flutter pub get
+
           rm -rf ios/Pods ios/Podfile.lock ios/.symlinks
 
-          echo "Running pod install..."
           cd ios
-          pod install --verbose
+          pod install --repo-update
 
       - name: Apply code signing
         script: xcode-project use-profiles
 
-      - name: Flutter build ipa
+      - name: Build IPA
         script: flutter build ipa --release
 
     artifacts:
