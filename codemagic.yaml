@@ -38,6 +38,26 @@ workflows:
         script: |
           rm -rf ios/Flutter/AppFrameworkInfo.plist || true
           rm -rf ios/Flutter/flutter_export_environment.sh || true
+      - name: "Fix Generated.xcconfig for macOS"
+        script: |
+          echo "Rewriting ios/Flutter/Generated.xcconfig with Codemagic paths..."
+          cat > ios/Flutter/Generated.xcconfig << EOF
+          // Generated for Codemagic – overrides Windows paths
+          FLUTTER_ROOT=$FLUTTER_ROOT
+          FLUTTER_APPLICATION_PATH=$CM_BUILD_DIR
+          COCOAPODS_PARALLEL_CODE_SIGN=true
+          FLUTTER_TARGET=lib/main.dart
+          FLUTTER_BUILD_DIR=build
+          FLUTTER_BUILD_NAME=1.0.1
+          FLUTTER_BUILD_NUMBER=1
+          DART_OBFUSCATION=false
+          TRACK_WIDGET_CREATION=true
+          TREE_SHAKE_ICONS=false
+          PACKAGE_CONFIG=.dart_tool/package_config.json
+          EOF
+          
+          echo "Resulting Generated.xcconfig:"
+          cat ios/Flutter/Generated.xcconfig
 
       - name: Build signed IPA
         script: |
