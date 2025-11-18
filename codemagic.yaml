@@ -3,9 +3,9 @@ workflows:
     name: iOS IPA Build (YAML)
 
     environment:
-      #ios_signing:
-        #distribution_type: app-store
-        #bundle_identifier: "de.seitendorf.kneipentour"
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: "de.seitendorf.kneipentour"
       flutter: stable
       xcode: latest
       vars:
