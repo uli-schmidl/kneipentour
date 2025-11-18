@@ -63,7 +63,7 @@ workflows:
       # --- iOS Release-Build (Signing macht die Codemagic-UI) ---
       - name: Flutter build ipa
         script: |
-          flutter build ipa --release
+          flutter build ipa
 
     artifacts:
       - build/ios/ipa/*.ipa
