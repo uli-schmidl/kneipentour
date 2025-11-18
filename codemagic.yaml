@@ -53,11 +53,11 @@ workflows:
           EOF
 
       # --- CocoaPods auf Version, mit der podhelper.rb klar kommt ---
-      - name: Downgrade CocoaPods
-        script: |
-          sudo gem uninstall cocoapods --all --executables || true
-          sudo gem install cocoapods -v 1.12.1
-          pod --version
+      #- name: Downgrade CocoaPods
+      #  script: |
+      #    sudo gem uninstall cocoapods --all --executables || true
+      #    sudo gem install cocoapods -v 1.12.1
+      #    pod --version
 
       - name: Flutter clean & Pod Install
         script: |
