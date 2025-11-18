@@ -1,13 +1,12 @@
 platform :ios, '15.0'
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
-flutter_root = File.expand_path(File.join('..', '..', 'flutter'), __dir__)
+flutter_root = ENV['FLUTTER_ROOT']
 load File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
 
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
-
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
