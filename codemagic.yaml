@@ -1,8 +1,11 @@
 workflows:
   ios-build:
-    name: "iOS Build"
+    name: iOS IPA Build (YAML)
 
     environment:
+      #ios_signing:
+        #distribution_type: app-store
+        #bundle_identifier: "de.seitendorf.kneipentour"
       flutter: stable
       xcode: latest
       vars:
@@ -10,38 +13,7 @@ workflows:
         LANG: en_US.UTF-8
 
     scripts:
-      # ---------------------------------------------------------
-      # 1) Backup important iOS files before deleting ios/
-      # ---------------------------------------------------------
-      - name: Backup important iOS resources
-        script: |
-          echo "Backing up GoogleService-Info.plist and Assets..."
-          mkdir -p /tmp/ios_backup
-          cp ios/Runner/GoogleService-Info.plist /tmp/ios_backup/GoogleService-Info.plist || true
-          cp -R ios/Runner/Assets.xcassets /tmp/ios_backup/Assets.xcassets || true
-
-      # ---------------------------------------------------------
-      # 2) Remove corrupted ios folder & regenerate it
-      # ---------------------------------------------------------
-      - name: Regenerate iOS folder
-        script: |
-          echo "Removing corrupted ios folder..."
-          rm -rf ios
-
-          echo "Regenerating iOS platform..."
-          flutter create .
-
-      # -----------------------------------------------------------
-      # 3) Restore the important files we backed up
-      # ---------------------------------------------------------
-      - name: Restore GoogleService-Info.plist + Assets
-        script: |
-          echo "Restoring GoogleService-Info.plist..."
-          cp /tmp/ios_backup/GoogleService-Info.plist ios/Runner/GoogleService-Info.plist || true
-
-          echo "Restoring Assets.xcassets..."
-          rm -rf ios/Runner/Assets.xcassets
-          cp -R /tmp/ios_backup/Assets.xcassets ios/Runner/ || true
+      # --- Podfile sicherstellen (funktioniert bei dir bereits) ---
       - name: Fix Podfile
         script: |
           echo "Rewriting Podfile..."
@@ -58,24 +30,22 @@ workflows:
             use_modular_headers!
             flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
           end
-          
+
           post_install do |installer|
             installer.pods_project.targets.each do |target|
               flutter_additional_ios_build_settings(target)
-              target.build_configurations.each do |config|
-                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
-              end
             end
           end
-          
           EOF
 
+      # --- CocoaPods auf Version, mit der podhelper.rb klar kommt ---
       - name: Downgrade CocoaPods
         script: |
           sudo gem uninstall cocoapods --all --executables || true
           sudo gem install cocoapods -v 1.12.1
           pod --version
 
+      # --- Flutter & Pods vorbereiten ---
       - name: Flutter clean
         script: flutter clean
 
@@ -88,22 +58,22 @@ workflows:
           rm -rf Pods Podfile.lock
           pod install
 
-
-
-      - name: Flutter build (iOS preparation)
-        script: |
-          flutter build ios --release --no-codesign
-
-      - name: Build IPA
+      # --- iOS Release-Build (Signing macht die Codemagic-UI) ---
+      - name: Flutter build ipa
         script: |
           flutter build ipa --release
 
-
     artifacts:
-      - build/ios/**/*.ipa
-      - build/ios/archive/*.xcarchive
+      - build/ios/ipa/*.ipa
 
     publishing:
       email:
         recipients:
           - "uli-schmidl@web.de"
+
+code_signing:
+  ios_signing:
+    certificates:
+      - Codemagic Cert
+    provisioning_profiles:
+      - Dist_xcode
