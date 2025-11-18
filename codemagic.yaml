@@ -63,11 +63,18 @@ workflows:
         script: |
           flutter clean
           flutter pub get
-          rm -rf ios/Pods
-          rm -rf ios/Podfile.lock
-          rm -rf ios/.symlinks
+
           cd ios
-          pod install
+
+          echo "Fixing CocoaPods repo..."
+          rm -rf ~/.cocoapods
+          rm -rf ~/Library/Caches/CocoaPods
+          rm -rf ~/Library/Pods
+
+          echo "Reinitializing Pods..."
+          pod repo remove trunk || true
+          pod setup
+          pod install --clean-install --repo-update
 
       - name: Set up code signing settings on Xcode project
         script: xcode-project use-profiles
