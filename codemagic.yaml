@@ -14,8 +14,7 @@ workflows:
 
     scripts:
       # --- Podfile sicherstellen (funktioniert bei dir bereits) ---
-      - name: Set up code signing settings on Xcode project
-        script: xcode-project use-profiles
+
       - name: Rebuild iOS folder
         script: |
           #echo "Deleting broken iOS folder..."
@@ -60,19 +59,18 @@ workflows:
           sudo gem install cocoapods -v 1.12.1
           pod --version
 
-      # --- Flutter & Pods vorbereiten ---
-      - name: Flutter clean
-        script: flutter clean
-
-      - name: Flutter pub get
-        script: flutter pub get
-
-      - name: Pod install
+      - name: Flutter clean & Pod Install
         script: |
+          flutter clean
+          flutter pub get
+          rm -rf ios/Pods
+          rm -rf ios/Podfile.lock
+          rm -rf ios/.symlinks
           cd ios
-          rm -rf Pods Podfile.lock
           pod install
 
+      - name: Set up code signing settings on Xcode project
+        script: xcode-project use-profiles
       # --- iOS Release-Build (Signing macht die Codemagic-UI) ---
       - name: Flutter build ipa
         script: |
