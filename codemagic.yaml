@@ -1,59 +1,54 @@
 workflows:
-  ios-build:
-    name: iOS IPA Build (stable)
+  ios-release:
+    name: "iOS Release Build"
+    max_build_duration: 60
 
     environment:
-      flutter: stable
-      xcode: latest
+      flutter: 3.35.7
+      xcode: 16.4
+      cocoapods: default
       ios_signing:
         distribution_type: app_store
         bundle_identifier: "de.seitendorf.kneipentour"
+      groups:
+        - firebase_credentials   # OPTIONAL – falls du IOS_FIREBASE_PLIST nutzt
+      vars:
+        LC_ALL: en_US.UTF-8
+        LANG: en_US.UTF-8
 
     scripts:
-
-      - name: Show Flutter version
-        script: flutter --version
-
-      - name: Restore Firebase files
+      - name: "Flutter dependencies"
         script: |
-          cp -f ./firebase/GoogleService-Info.plist ios/Runner/
-          cp -f ./firebase/Info.plist ios/Runner/Info.plist
-
-      - name: Install CocoaPods 1.12.1
-        script: |
-          sudo gem uninstall cocoapods --all --executables || true
-          sudo gem install cocoapods -v 1.12.1
-          pod --version
-
-      - name: Reset CocoaPods repo
-        script: |
-          rm -rf ~/.cocoapods/repos
-          pod repo add trunk https://cdn.cocoapods.org/
-          pod repo update trunk --verbose
-
-      - name: Flutter clean & pod install
-        script: |
-          flutter clean
           flutter pub get
 
-          rm -rf ios/Pods ios/Podfile.lock ios/.symlinks
-
+      - name: "Install CocoaPods"
+        script: |
           cd ios
-          pod install
+          pod install --repo-update
 
-      - name: Apply code signing
-        script: xcode-project use-profiles
+      - name: "Copy Firebase config"
+        script: |
+          if [ -n "$IOS_FIREBASE_PLIST" ]; then
+            echo "$IOS_FIREBASE_PLIST" > ios/Runner/GoogleService-Info.plist
+          fi
 
-      - name: Build IPA
-        script: flutter build ipa --release
+      - name: "Prepare signing keychain"
+        script: |
+          keychain initialize
+          keychain add-certificates
+
+      - name: "Apply provisioning profile to Xcode project"
+        script: |
+          xcode-project use-profiles
+
+      - name: "Build signed IPA"
+        script: |
+          xcode-project build-ipa \
+            --workspace "ios/Runner.xcworkspace" \
+            --scheme "Runner"
 
     artifacts:
       - build/ios/ipa/*.ipa
-
-    publishing:
-      email:
-        recipients:
-          - "uli-schmidl@web.de"
 
 code_signing:
   ios_signing:
