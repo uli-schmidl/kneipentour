@@ -1,5 +1,6 @@
 cache:
   cache_paths: []
+
 workflows:
   ios-release:
     name: "iOS Release Build"
@@ -42,11 +43,6 @@ workflows:
 
       - name: Apply provisioning profile to Xcode project
         script: xcode-project use-profiles
-
-      - name: Clean broken iOS Flutter cache
-        script: |
-          rm -rf ios/Flutter/AppFrameworkInfo.plist || true
-          rm -rf ios/Flutter/flutter_export_environment.sh || true
 
       - name: Build signed IPA
         script: |
