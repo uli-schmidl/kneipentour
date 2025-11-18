@@ -10,38 +10,36 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: "de.seitendorf.kneipentour"
-      groups:
-        - firebase_credentials   # OPTIONAL – falls du IOS_FIREBASE_PLIST nutzt
       vars:
         LC_ALL: en_US.UTF-8
         LANG: en_US.UTF-8
 
     scripts:
-      - name: "Flutter dependencies"
-        script: |
-          flutter pub get
+      - name: Precache iOS artifacts
+        script: flutter precache --ios
 
-      - name: "Install CocoaPods"
+      - name: Flutter dependencies
+        script: flutter pub get
+
+      - name: Install CocoaPods
         script: |
           cd ios
           pod install --repo-update
 
-      - name: "Copy Firebase config"
-        script: |
-          if [ -n "$IOS_FIREBASE_PLIST" ]; then
-            echo "$IOS_FIREBASE_PLIST" > ios/Runner/GoogleService-Info.plist
-          fi
-
-      - name: "Prepare signing keychain"
+      - name: Prepare signing keychain
         script: |
           keychain initialize
           keychain add-certificates
 
-      - name: "Apply provisioning profile to Xcode project"
-        script: |
-          xcode-project use-profiles
+      - name: Apply provisioning profile to Xcode project
+        script: xcode-project use-profiles
 
-      - name: "Build signed IPA"
+      - name: Clean broken iOS Flutter cache
+        script: |
+          rm -rf ios/Flutter/AppFrameworkInfo.plist || true
+          rm -rf ios/Flutter/flutter_export_environment.sh || true
+
+      - name: Build signed IPA
         script: |
           xcode-project build-ipa \
             --workspace "ios/Runner.xcworkspace" \
