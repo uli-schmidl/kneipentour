@@ -18,11 +18,11 @@ workflows:
         script: xcode-project use-profiles
       - name: Rebuild iOS folder
         script: |
-          echo "Deleting broken iOS folder..."
-          rm -rf ios
+          #echo "Deleting broken iOS folder..."
+          #rm -rf ios
           
-          echo "Recreating iOS folder with flutter create..."
-          flutter create .
+          #echo "Recreating iOS folder with flutter create..."
+          #flutter create .
           
           echo "Restoring Firebase config..."
           cp -f ./firebase/GoogleService-Info.plist ios/Runner/
