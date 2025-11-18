@@ -6,7 +6,7 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: "de.seitendorf.kneipentour"
-      flutter: stable
+      flutter: master
       xcode: latest
       vars:
         LC_ALL: en_US.UTF-8
