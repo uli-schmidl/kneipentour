@@ -1,6 +1,6 @@
 workflows:
   ios-build:
-    name: iOS IPA Build (YAML)
+    name: iOS IPA Build (Final)
 
     environment:
       ios_signing:
@@ -8,29 +8,24 @@ workflows:
         bundle_identifier: "de.seitendorf.kneipentour"
       flutter: stable
       xcode: latest
-      vars:
-        LC_ALL: en_US.UTF-8
-        LANG: en_US.UTF-8
 
     scripts:
-      # --- Podfile sicherstellen (funktioniert bei dir bereits) ---
 
-      - name: Rebuild iOS folder
+      # 1) iOS folder clean rebuild (NUR Dateien, nicht Flutter Projekt)
+      - name: Regenerate iOS folder
         script: |
-          #echo "Deleting broken iOS folder..."
-          #rm -rf ios
-          
-          #echo "Recreating iOS folder with flutter create..."
-          #flutter create .
-          
-          echo "Restoring Firebase config..."
-          cp -f ./firebase/GoogleService-Info.plist ios/Runner/
-          
-          echo "Restoring Info.plist permissions..."
-          cp -f ./firebase/Info.plist ios/Runner/Info.plist
-      - name: Fix Podfile
+          echo "Recreating a clean iOS folder..."
+
+          rm -rf ios
+          flutter create ios --platforms=ios
+
+          echo "Restoring Firebase files..."
+          cp -f firebase/GoogleService-Info.plist ios/Runner/
+          cp -f firebase/Info.plist ios/Runner/Info.plist
+
+      # 2) Correct Podfile
+      - name: Write Podfile
         script: |
-          echo "Rewriting Podfile..."
           rm -f ios/Podfile
           cat > ios/Podfile << 'EOF'
           platform :ios, '15.0'
@@ -52,36 +47,21 @@ workflows:
           end
           EOF
 
-      # --- CocoaPods auf Version, mit der podhelper.rb klar kommt ---
-      #- name: Downgrade CocoaPods
-      #  script: |
-      #    sudo gem uninstall cocoapods --all --executables || true
-      #    sudo gem install cocoapods -v 1.12.1
-      #    pod --version
-
-      - name: Flutter clean & Pod Install
+      # 3) CocoaPods fix
+      - name: Install Pods cleanly
         script: |
-          flutter clean
-          flutter pub get
-
           cd ios
+          rm -rf Pods Podfile.lock .symlinks
+          pod repo update
+          pod install --clean-install
 
-          echo "Fixing CocoaPods repo..."
-          rm -rf ~/.cocoapods
-          rm -rf ~/Library/Caches/CocoaPods
-          rm -rf ~/Library/Pods
-
-          echo "Reinitializing Pods..."
-          pod repo remove trunk || true
-          pod setup
-          pod install --clean-install --repo-update
-
-      - name: Set up code signing settings on Xcode project
+      # 4) Apply Codemagic code signing
+      - name: Apply code signing
         script: xcode-project use-profiles
-      # --- iOS Release-Build (Signing macht die Codemagic-UI) ---
-      - name: Flutter build ipa
-        script: |
-          flutter build ipa
+
+      # 5) Build IPA
+      - name: Build IPA
+        script: flutter build ipa --release
 
     artifacts:
       - build/ios/ipa/*.ipa
