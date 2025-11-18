@@ -11,19 +11,7 @@ workflows:
 
     scripts:
 
-      # 1) iOS folder clean rebuild (NUR Dateien, nicht Flutter Projekt)
-      - name: Regenerate iOS folder
-        script: |
-          echo "Recreating a clean iOS folder..."
 
-          rm -rf ios
-          flutter create ios --platforms=ios
-
-          echo "Restoring Firebase files..."
-          cp -f firebase/GoogleService-Info.plist ios/Runner/
-          cp -f firebase/Info.plist ios/Runner/Info.plist
-
-      # 2) Correct Podfile
       - name: Write Podfile
         script: |
           rm -f ios/Podfile
