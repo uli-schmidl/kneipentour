@@ -7,24 +7,28 @@ load File.join(flutter_root, 'packages', 'flutter_tools', 'bin', 'podhelper.rb')
 target 'Runner' do
   use_frameworks!
   use_modular_headers!
+
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
 end
 
 post_install do |installer|
   installer.pods_project.targets.each do |target|
-    # Fix für BoringSSL (wichtig für Firebase)
+    flutter_additional_ios_build_settings(target)
+
+    # ✨ Fix: Setze alle Pods auf iOS 15.0
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+    end
+
+    # ✨ Extra Fix für BoringSSL
     if target.name == 'BoringSSL-GRPC'
       target.source_build_phase.files.each do |file|
         if file.settings && file.settings['COMPILER_FLAGS']
           flags = file.settings['COMPILER_FLAGS'].split
-          # Entfernt den problematischen Flag
           flags.reject! { |flag| flag == '-GCC_WARN_INHIBIT_ALL_WARNINGS' }
           file.settings['COMPILER_FLAGS'] = flags.join(' ')
         end
       end
     end
-
-    # Standard Flutter Einstellungen hinzufügen
-    flutter_additional_ios_build_settings(target)
   end
 end
