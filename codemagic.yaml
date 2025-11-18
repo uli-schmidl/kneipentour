@@ -60,11 +60,19 @@ workflows:
       - name: Flutter clean & pods
         script: |
           flutter clean
-          rm -f ios/Flutter/Generated.xcconfig
           flutter pub get
+
+          echo "Resetting CocoaPods repo..."
+          rm -rf ~/.cocoapods/repos
+          pod repo add trunk https://cdn.cocoapods.org/
+          pod repo update trunk --verbose
+
+          echo "Removing old Pods..."
+          rm -rf ios/Pods ios/Podfile.lock ios/.symlinks
+
+          echo "Running pod install..."
           cd ios
-          rm -rf Pods Podfile.lock .symlinks
-          pod install
+          pod install --verbose
 
       - name: Apply code signing
         script: xcode-project use-profiles
