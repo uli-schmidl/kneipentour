@@ -39,7 +39,7 @@ workflows:
           rm -rf ios/Pods ios/Podfile.lock ios/.symlinks
 
           cd ios
-          pod install --repo-update
+          pod install
 
       - name: Apply code signing
         script: xcode-project use-profiles
