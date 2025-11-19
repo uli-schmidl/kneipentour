@@ -42,6 +42,19 @@ workflows:
         script: |
           rm -f ios/Flutter/flutter_export_environment.sh
 
+      - name: Pre-generate iOS build config (Debug-Step)
+        script: |
+          # Versuch, iOS-Konfiguration zu erzeugen
+          flutter build ios --config-only --release || true
+
+          echo "===== DEBUG: flutter_export_environment.sh (HEAD) ====="
+          if [ -f ios/Flutter/flutter_export_environment.sh ]; then
+            sed -n '1,40p' ios/Flutter/flutter_export_environment.sh
+          else
+            echo "Datei ios/Flutter/flutter_export_environment.sh existiert NICHT nach --config-only."
+          fi
+          echo "===== END DEBUG ====="
+
       - name: Clean Xcode project references to flutter_export_environment.sh
         script: |
           echo "Cleaning Xcode project from invalid shell file..."
@@ -50,6 +63,7 @@ workflows:
       - name: Build signed IPA via Flutter
         script: |
           flutter build ipa --release --verbose
+    
 
     artifacts:
       - build/ios/ipa/*.ipa
