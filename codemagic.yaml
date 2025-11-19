@@ -42,7 +42,7 @@ workflows:
           keychain add-certificates
 
       - name: Apply provisioning profile to Xcode project
-        script: xcode-project use-profiles --automatic-signing
+        script: xcode-project use-profiles
 
       # 🆕 NEUER SCHRITT: flutter_export_environment.sh für macOS korrekt erzeugen
       - name: Generate flutter_export_environment.sh for CI
@@ -78,6 +78,9 @@ workflows:
           chmod +x ios/Flutter/flutter_export_environment.sh
           echo "Generated ios/Flutter/flutter_export_environment.sh:"
           cat ios/Flutter/flutter_export_environment.sh
+      - name: Build iOS (no signing)
+        script: |
+          flutter build ios --release --no-codesign --verbose
 
       - name: Build signed IPA
         script: |
