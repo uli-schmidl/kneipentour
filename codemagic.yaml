@@ -22,8 +22,9 @@ workflows:
         script: |
           flutter clean
           flutter pub get
+          flutter precache --ios
 
-      - name: Install CocoaPods safely
+      - name: Install CocoaPods
         script: |
           cd ios
           pod install
@@ -33,17 +34,19 @@ workflows:
           keychain initialize
           keychain add-certificates
 
-      - name: Apply provisioning profiles to Xcode project
+      - name: Apply provisioning profiles
         script: |
           xcode-project use-profiles
 
-      - name: Remove old broken Flutter environment file
+      - name: Remove flutter_export_environment.sh if present
         script: |
           rm -f ios/Flutter/flutter_export_environment.sh
-      - name: Remove flutter_export_environment.sh from Xcode build phases
+
+      - name: Clean Xcode project references to flutter_export_environment.sh
         script: |
+          echo "Cleaning Xcode project from invalid shell file..."
           sed -i '' '/flutter_export_environment.sh/d' ios/Runner.xcodeproj/project.pbxproj
-      # WICHTIG: KEIN xcode-project build-ipa mehr!
+
       - name: Build signed IPA via Flutter
         script: |
           flutter build ipa --release --verbose
