@@ -40,7 +40,9 @@ workflows:
       - name: Remove old broken Flutter environment file
         script: |
           rm -f ios/Flutter/flutter_export_environment.sh
-
+      - name: Remove flutter_export_environment.sh from Xcode build phases
+        script: |
+          sed -i '' '/flutter_export_environment.sh/d' ios/Runner.xcodeproj/project.pbxproj
       # WICHTIG: KEIN xcode-project build-ipa mehr!
       - name: Build signed IPA via Flutter
         script: |
