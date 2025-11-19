@@ -23,24 +23,10 @@ workflows:
           flutter clean
           flutter pub get
 
-      - name: Install CocoaPods (mit Git-Repo statt CDN)
+      - name: Install CocoaPods safely
         script: |
           cd ios
-
-          echo "Reset CocoaPods repos..."
-          rm -rf ~/.cocoapods/repos
-
-          echo "Add trunk from GitHub (statt CDN)..."
-          pod repo add trunk https://github.com/CocoaPods/Specs.git
-
-          echo "Update pods repo..."
-          pod repo update
-
-          echo "Remove old Pods..."
-          rm -rf Pods Podfile.lock .symlinks
-
-          echo "Install pods..."
-          pod install --repo-update
+          pod install
 
       - name: Prepare signing keychain
         script: |
@@ -50,6 +36,10 @@ workflows:
       - name: Apply provisioning profiles to Xcode project
         script: |
           xcode-project use-profiles
+
+      - name: Remove old broken Flutter environment file
+        script: |
+          rm -f ios/Flutter/flutter_export_environment.sh
 
       # WICHTIG: KEIN xcode-project build-ipa mehr!
       - name: Build signed IPA via Flutter
