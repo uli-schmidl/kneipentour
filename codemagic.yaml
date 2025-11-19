@@ -30,9 +30,9 @@ workflows:
 
           echo "Reset pods repo (avoid CDN errors)..."
           rm -rf ~/.cocoapods/repos
-          pod repo add trunk https://github.com/CocoaPods/Specs.git
-          pod repo update
-
+          pod repo add cocoapods-specs https://github.com/CocoaPods/Specs.git
+          pod repo update cocoapods-specs
+  
           echo "Install pods..."
           pod install --repo-update
 
@@ -43,10 +43,6 @@ workflows:
 
       - name: Apply provisioning profile to Xcode project
         script: xcode-project use-profiles
-
-      - name: Fix Xcode signing settings
-        script: |
-          xcode-project use-profiles --warn-only
 
       # 🆕 NEUER SCHRITT: flutter_export_environment.sh für macOS korrekt erzeugen
       - name: Generate flutter_export_environment.sh for CI
@@ -83,7 +79,16 @@ workflows:
           echo "Generated ios/Flutter/flutter_export_environment.sh:"
           cat ios/Flutter/flutter_export_environment.sh
 
-
+      - name: Dump full Xcode error log
+        script: |
+          echo "========== FULL XCODE LOG =========="
+          if [ -d ~/Library/Logs/gym ]; then
+            find ~/Library/Logs/gym -type f -print -exec cat {} \;
+          fi
+          if [ -d ~/Library/Developer/Xcode/DerivedData ]; then
+            find ~/Library/Developer/Xcode/DerivedData -name '*.log' -print -exec cat {} \;
+          fi
+          echo "========== END XCODE LOG =========="
       - name: Build signed IPA
         script: |
           xcode-project build-ipa \
