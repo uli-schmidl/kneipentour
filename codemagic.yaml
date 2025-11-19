@@ -91,7 +91,7 @@ workflows:
           echo "========== END XCODE LOG =========="
       - name: Build signed IPA
         script: |
-          xcode-project build-ipa \
+          xcode-project build-ipa --verbose \
             --workspace "ios/Runner.xcworkspace" \
             --scheme "Runner"
 
