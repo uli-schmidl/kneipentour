@@ -10,9 +10,6 @@ workflows:
       flutter: 3.35.7
       xcode: 16.4
       cocoapods: default
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: "de.seitendorf.kneipentour"
       vars:
         LC_ALL: en_US.UTF-8
         LANG: en_US.UTF-8
@@ -38,38 +35,18 @@ workflows:
         script: |
           xcode-project use-profiles
 
-      - name: Remove flutter_export_environment.sh if present
-        script: |
-          rm -f ios/Flutter/flutter_export_environment.sh
-
-      - name: Pre-generate iOS build config (Debug-Step)
-        script: |
-          # Versuch, iOS-Konfiguration zu erzeugen
-          flutter build ios --config-only --release || true
-
-          echo "===== DEBUG: flutter_export_environment.sh (HEAD) ====="
-          if [ -f ios/Flutter/flutter_export_environment.sh ]; then
-            sed -n '1,40p' ios/Flutter/flutter_export_environment.sh
-          else
-            echo "Datei ios/Flutter/flutter_export_environment.sh existiert NICHT nach --config-only."
-          fi
-          echo "===== END DEBUG ====="
-
-      - name: Clean Xcode project references to flutter_export_environment.sh
-        script: |
-          echo "Cleaning Xcode project from invalid shell file..."
-          sed -i '' '/flutter_export_environment.sh/d' ios/Runner.xcodeproj/project.pbxproj
-
       - name: Build signed IPA via Flutter
         script: |
-          flutter build ipa --release --verbose
-    
+          export METHOD=app-store
+          flutter build ipa --release  
 
     artifacts:
       - build/ios/ipa/*.ipa
 
 code_signing:
   ios_signing:
+    distribution_type: app_store
+    bundle_identifier: "de.seitendorf.kneipentour"
     certificates:
       - Codemagic Cert
     provisioning_profiles:
