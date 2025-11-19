@@ -47,11 +47,11 @@ workflows:
       - name: Fix Xcode signing settings
         script: |
           xcode-project use-profiles --warn-only
-      - name: Dump Xcode logs
-        script: |
-          echo "==== DUMP XCODE LOGS ===="
-          find ~/Library/Developer/Xcode/DerivedData -name "*.log" -print -exec cat {} \; || true
-          echo "==== END DUMP ===="
+      #- name: Dump Xcode logs
+      #  script: |
+      #    echo "==== DUMP XCODE LOGS ===="
+      #    find ~/Library/Developer/Xcode/DerivedData -name "*.log" -print -exec cat {} \; || true
+      #    echo "==== END DUMP ===="
 
       - name: Build signed IPA
         script: |
