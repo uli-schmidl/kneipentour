@@ -32,7 +32,6 @@ workflows:
       - name: Prepare signing keychain
         script: |
           keychain initialize
-          # nimmt jetzt CM_CERTIFICATE + CM_CERTIFICATE_PASSWORD
           keychain add-certificates
 
       - name: Apply provisioning profiles
@@ -46,3 +45,12 @@ workflows:
 
     artifacts:
       - build/ios/ipa/*.ipa
+
+code_signing:
+  ios_signing:
+    distribution_type: app_store
+    bundle_identifier: "de.seitendorf.kneipentour"
+    certificates:
+      - Codemagic Cert
+    provisioning_profiles:
+      - Dist_xcode
