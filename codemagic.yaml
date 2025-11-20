@@ -38,9 +38,16 @@ workflows:
         script: |
           xcode-project use-profiles
 
-      - name: Build signed IPA (Flutter)
+      #- name: Build signed IPA (Flutter)
+      #  script: |
+      #    flutter build ipa --release --verbose
+      - name: Build signed IPA with Xcode
         script: |
-          flutter build ipa --release --verbose
+          # Jetzt NICHT mehr Flutter exportieren lassen,
+          # sondern explizit Xcode mit Workspace & Scheme
+          xcode-project build-ipa \
+            --workspace ios/Runner.xcworkspace \
+            --scheme Runner
 
     artifacts:
       - build/ios/ipa/*.ipa
