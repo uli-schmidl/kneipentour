@@ -38,10 +38,14 @@ workflows:
         script: |
           xcode-project use-profiles
 
-      - name: Build signed IPA via Flutter
+      - name: Build iOS (Flutter)
         script: |
-          export METHOD=app-store
-          flutter build ipa --release --verbose
+          flutter build ios --release --no-codesign
+
+      - name: Build signed IPA with Xcode
+        script: |
+          xcode-project build-ipa
+    
 
     artifacts:
       - build/ios/ipa/*.ipa
