@@ -46,7 +46,11 @@ workflows:
           xcode-project build-ipa \
             --workspace ios/Runner.xcworkspace \
             --scheme Runner
-
+      - name: Publish to App Store Connect
+        script: |
+          app-store-connect publish \
+            --file build/ios/ipa/*.ipa \
+            --type ios
     artifacts:
       - build/ios/ipa/*.ipa
 
