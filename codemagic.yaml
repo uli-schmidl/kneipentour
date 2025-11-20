@@ -18,15 +18,11 @@ workflows:
         LANG: en_US.UTF-8
 
     scripts:
-
       - name: Flutter clean & dependencies
         script: |
           flutter clean
           flutter pub get
-
-      - name: Pre-generate iOS project (NO signing yet)
-        script: |
-          flutter build ios --release --no-codesign --config-only
+          flutter precache --ios
 
       - name: Install CocoaPods
         script: |
@@ -42,9 +38,10 @@ workflows:
         script: |
           xcode-project use-profiles
 
-      - name: Build signed IPA with Xcode
+      - name: Build signed IPA (Flutter)
         script: |
-          xcode-project build-ipa
+          flutter build ipa --release --verbose
+
     artifacts:
       - build/ios/ipa/*.ipa
 
