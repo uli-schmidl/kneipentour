@@ -16,7 +16,8 @@ workflows:
       vars:
         LC_ALL: en_US.UTF-8
         LANG: en_US.UTF-8
-
+    integrations:
+      app_store_connect: Apple Dev
     scripts:
       - name: Flutter clean & dependencies
         script: |
@@ -47,13 +48,18 @@ workflows:
             --workspace ios/Runner.xcworkspace \
             --scheme Runner
 
-      - name: Publish to App Store Connect
-        script: |
-          app-store-connect publish ipa \
-            --path $(ls build/ios/ipa/*.ipa | head -n 1)
+      #- name: Publish to App Store Connect
+      #  script: |
+      #    app-store-connect publish ipa \
+      #      --path $(ls build/ios/ipa/*.ipa | head -n 1)
 
     artifacts:
       - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+
 
 code_signing:
   ios_signing:
