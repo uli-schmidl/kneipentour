@@ -10,6 +10,9 @@ workflows:
       flutter: 3.35.7
       xcode: 16.4
       cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: "de.seitendorf.kneipentour"
       vars:
         LC_ALL: en_US.UTF-8
         LANG: en_US.UTF-8
@@ -29,6 +32,7 @@ workflows:
       - name: Prepare signing keychain
         script: |
           keychain initialize
+          # nimmt jetzt CM_CERTIFICATE + CM_CERTIFICATE_PASSWORD
           keychain add-certificates
 
       - name: Apply provisioning profiles
@@ -38,16 +42,7 @@ workflows:
       - name: Build signed IPA via Flutter
         script: |
           export METHOD=app-store
-          flutter build ipa --release  
+          flutter build ipa --release --verbose
 
     artifacts:
       - build/ios/ipa/*.ipa
-
-code_signing:
-  ios_signing:
-    distribution_type: app_store
-    bundle_identifier: "de.seitendorf.kneipentour"
-    certificates:
-      - Codemagic Cert
-    provisioning_profiles:
-      - Dist_xcode
