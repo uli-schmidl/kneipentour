@@ -49,9 +49,8 @@ workflows:
 
       - name: Publish to App Store Connect
         script: |
-          app-store-connect publish \
-            --file build/ios/ipa/*.ipa \
-            --type ios
+          app-store-connect publish ipa \
+            --path $(ls build/ios/ipa/*.ipa | head -n 1)
 
     artifacts:
       - build/ios/ipa/*.ipa
