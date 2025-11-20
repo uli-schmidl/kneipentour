@@ -45,5 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+    <key>NSCameraUsageDescription</key>
+    <string>Die Kamera wird benötigt, um QR-Codes und Bilder zu erfassen.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Der Standort wird benötigt, um Pubs in deiner Nähe anzuzeigen und Check-ins korrekt zuzuordnen.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Der Standort wird benötigt, damit Check-ins auch im Hintergrund korrekt funktionieren.</string>
 </dict>
 </plist>
