@@ -24,11 +24,12 @@ workflows:
           flutter clean
           flutter pub get
 
-      - name: Auto increment build number
+      - name: Set iOS build number from Codemagic build number
         script: |
-          NEW_BUILD=$(($(app-store-connect get-latest-testflight-build-number --bundle-id de.seitendorf.kneipentour) + 1))
-          echo "New build number: $NEW_BUILD"
-          agvtool new-version -all $NEW_BUILD
+          echo "Using Codemagic build number: $FCI_BUILD_NUMBER"
+          cd ios
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $FCI_BUILD_NUMBER" Runner/Info.plist
+      
 
       - name: Build iOS without code signing
         script: |
