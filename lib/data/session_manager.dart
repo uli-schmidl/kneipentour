@@ -10,10 +10,10 @@ import 'package:kneipentour/data/guest_manager.dart';
 import 'package:kneipentour/data/pub_manager.dart';
 import 'package:kneipentour/models/achievement.dart';
 import 'package:kneipentour/models/pub.dart';
+import 'package:kneipentour/screens/start_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
-
 
 class SessionManager {
   static final SessionManager _instance = SessionManager._internal();
@@ -30,7 +30,6 @@ class SessionManager {
   String get userName => _userName ?? '';
   StreamSubscription<Position>? _positionSub;
 
-
   bool get hasGuest => _guestId != null;
   bool get isInitialized => _userName != null;
 
@@ -42,12 +41,10 @@ class SessionManager {
 
   final ValueNotifier<bool> isNearPub = ValueNotifier<bool>(false);
 
-// Auto-Checkin
+  // Auto-Checkin
   Pub? _nearPubCandidate;
   DateTime? _nearSince;
   bool _autoCheckinReminderSent = false;
-
-
 
   // ==== Setter / Initialisierung ====
   void initUser({required String id, required String name}) {
@@ -84,85 +81,127 @@ class SessionManager {
     // await prefs.clear();
   }
 
-    Future<void> startLocationUpdates() async {
-      try {
-        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-        if (!serviceEnabled) {
-          debugPrint('Location Service disabled');
-          return;
-        }    final permission = await Geolocator.requestPermission();
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
+  Future<void> updateLocation() async {
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      SessionManager().lastKnownLocation.value = pos;
+    } catch (e) {
+      debugPrint("⚠️ updateLocation: Standort konnte nicht ermittelt werden");
+    }
+  }
+
+
+  Future<void> initializeSession() async {
+    debugPrint("🟠 Session-Initialisierung gestartet…");
+    final permissionsOkay = await checkLocationPermission();
+
+    if (!permissionsOkay) {
+      debugPrint("🔴 Standortberechtigung wurde abgelehnt.");
       return;
     }
 
-        Position initialPos;
-        try {
-          initialPos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-          print('📍 Initialer Standort: $initialPos');
-        } catch (e) {
-          print('⚠️ Konnte Standort nicht ermitteln: $e');
-          initialPos = await Geolocator.getLastKnownPosition() ?? LocationConfig.posFrom(LocationConfig.centerPoint); // Fallback
-        }
+    try {
+      await updateLocation();
+      startLocationUpdates();
+      debugPrint("🟢 Session erfolgreich initialisiert.");
+    } catch (e) {
+      debugPrint("🔴 Fehler beim Initialisieren der Session: $e");
+    }
+  }
 
-        LocationSettings settings;
+  Future<bool> checkLocationPermission() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    debugPrint("📱 Standortdienste aktiviert: $serviceEnabled");
 
-        if (Platform.isAndroid) {
-          settings = AndroidSettings(
-            accuracy: LocationAccuracy.high,
-            distanceFilter: 5,
-            forceLocationManager: false, // optional
+    if (!serviceEnabled) {
+      return false;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    debugPrint("🔐 Aktuelle Berechtigung: $permission");
+
+    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      permission = await Geolocator.requestPermission();
+      debugPrint("📅 Neue Berechtigung nach Anfrage: $permission");
+
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  Future<void> startLocationUpdates() async {
+    ensureLocationPermission();
+
+    Position initialPos;
+    try {
+      try {
+        initialPos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+        print('📍 Initialer Standort: $initialPos');
+      } catch (e) {
+        print('⚠️ Konnte Standort nicht ermitteln: $e');
+      }
+      initialPos = await Geolocator.getLastKnownPosition() ?? LocationConfig.posFrom(LocationConfig.centerPoint); // Fallback
+      lastKnownLocation.value = initialPos;
+
+      LocationSettings settings;
+
+      if (Platform.isAndroid) {
+        settings = AndroidSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5,
+          forceLocationManager: false, // optional
+        );
+      } else {
+        settings = LocationSettings(
+          accuracy: LocationAccuracy.best,
+          distanceFilter: 10,
+        );
+      }
+
+      _positionSub?.cancel();
+      _positionSub = Geolocator.getPositionStream(
+        locationSettings: settings,
+      ).listen((pos) async {
+        if (_guestId == null || guestId.isEmpty) return;
+        debugPrint("$_guestId: Location changed! $pos");
+        lastKnownLocation.value = pos;
+        final nearestPub = PubManager().getNearestPub(pos.latitude, pos.longitude);
+        if (nearestPub != null) {
+          final dist = LocationConfig.calculateDistance(
+            pos.latitude, pos.longitude,
+            nearestPub.latitude, nearestPub.longitude,
           );
+
+          isNearPub.value = dist <= 30;
         } else {
-          // iOS + Web + Desktop → nutzen alle das gleiche
-          settings = LocationSettings(
-            accuracy: LocationAccuracy.best,
-            distanceFilter: 10,
-          );
+          isNearPub.value = false;
         }
+        await _checkAutoCheckout(pos);
 
-
-        _positionSub?.cancel();
-    _positionSub = Geolocator.getPositionStream(
-      locationSettings: settings,
-    ).listen((pos) async {
-      if(_guestId==null || guestId.isEmpty) return;
-      debugPrint("$_guestId: Location changed! $pos");
-      lastKnownLocation.value = pos;
-      final nearestPub = PubManager().getNearestPub(pos.latitude, pos.longitude);
-      if (nearestPub != null) {
-        final dist = LocationConfig.calculateDistance(
-          pos.latitude, pos.longitude,
-          nearestPub.latitude, nearestPub.longitude,
+        await _checkAutoCheckin();
+        GuestManager().updateGuestLocation(guestId: _guestId!, latitude: lastKnownLocation.value!.latitude, longitude: lastKnownLocation.value!.longitude);
+        AchievementManager().notifyAction(
+          AchievementEventType.locationUpdate,
+          _guestId!,
         );
 
-        isNearPub.value = dist <= 30; // z. B. 60m Radius
-      } else {
-        isNearPub.value = false;
-      }
-      await _checkAutoCheckout(pos);
-
-
-      await _checkAutoCheckin();
-      GuestManager().updateGuestLocation(guestId: _guestId!, latitude: lastKnownLocation.value!.latitude, longitude: lastKnownLocation.value!.longitude);
-      AchievementManager().notifyAction(
-        AchievementEventType.locationUpdate,
-        _guestId!,
+        ChallengeManager().evaluateProgress(_guestId!);
+      }, onError: (e, st) {
+        debugPrint('Location stream error: $e');
+      });
+      _idleLocationTimer = Timer.periodic(
+        const Duration(seconds: 20),
+            (_) => _checkAutoCheckinIdle(),
       );
-
-// 🎯 Challenges prüfen
-      ChallengeManager().evaluateProgress(_guestId!);
-    }, onError: (e, st) {
-      debugPrint('Location stream error: $e');
-    });
-    _idleLocationTimer = Timer.periodic(
-      const Duration(seconds: 20),
-          (_) => _checkAutoCheckinIdle(),
-    );
-      } catch (e, st) {
-        debugPrint('startLocationTracking failed: $e');
-        debugPrint('$st');
-      }
+    } catch (e, st) {
+      debugPrint('startLocationTracking failed: $e');
+      debugPrint('$st');
+    }
   }
 
   void stopLocationTracking() {
@@ -172,15 +211,12 @@ class SessionManager {
 
   Future<void> _checkAutoCheckinIdle() async {
     try {
-      // Standort aktiv abrufen
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
 
-      // Falls sich Standort nicht stark geändert hat → trotzdem weiterprüfen
-      lastKnownLocation.value = pos; // löst normale Listener auch aus
+      lastKnownLocation.value = pos;
 
-      // Auto-Checkin-Logik manuell triggern
       await _checkAutoCheckin();
 
     } catch (e) {
@@ -188,9 +224,35 @@ class SessionManager {
     }
   }
 
+  // ... weiterer Code unverändert belassen ...
+
+  Future<bool> ensureLocationPermission() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return false;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return false;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      await Geolocator.openAppSettings();
+      return false;
+    }
+
+    return true;
+  }
 
 
-  Future<void> _checkAutoCheckout(Position pos) async {
+
+
+Future<void> _checkAutoCheckout(Position pos) async {
       final pubId = currentPubId.value;
 
       if (pubId == null) return;
@@ -320,58 +382,4 @@ class SessionManager {
       debugPrint("📨 Auto-Checkin Reminder für $guestId und Kneipe ${closePub.name} gesendet!");
     }
   }
-
-  /// Öffnet unter iOS die App-/Standort-Einstellungen,
-  /// damit der User die Berechtigung nachträglich setzen kann.
-  /// Unter Android geht es in die Standort-Einstellungen.
-  Future<void> AppleLocationSettings() async {
-    try {
-      final status = await Geolocator.checkPermission();
-
-      // Wenn dauerhaft verweigert -> direkt in die App-Einstellungen
-      if (status == LocationPermission.deniedForever) {
-        await Geolocator.openAppSettings();
-        return;
-      }
-
-      // Versuche zuerst die Standort-Einstellungen zu öffnen
-      final opened = await Geolocator.openLocationSettings();
-
-      // Falls das auf iOS/Device nicht klappt -> Fallback App-Einstellungen
-      if (!opened) {
-        await Geolocator.openAppSettings();
-      }
-    } catch (e) {
-      debugPrint('AppleLocationSettings failed: $e');
-    }
-  }
-
-  Future<bool> ensureLocationPermission() async {
-    // 1. Ist Location an?
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return false; // StartScreen zeigt dann: "Nicht im Gebiet / Standort aus"
-    }
-
-    // 2. Berechtigungen prüfen
-    LocationPermission permission = await Geolocator.checkPermission();
-
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        return false;
-      }
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      // Dem User sagen: Bitte in Einstellungen aktivieren
-      await Geolocator.openAppSettings();
-      return false;
-    }
-
-    return true;
-  }
-
-
-
 }

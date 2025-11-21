@@ -112,10 +112,6 @@ class _MobileUnitScreenState extends State<MobileUnitScreen> {
     await ActivityManager().closeMobileUnitRequest(currentRequest!.id);
     await PubManager().updateAvailability(mobileUnit.id, true);
 
-    setState(() {
-      currentRequest = null;
-      mobileUnit.isAvailable = true;
-    });
   }
 
 

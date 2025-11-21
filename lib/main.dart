@@ -59,6 +59,8 @@ void main() async{
       debugPrint('Firebase init failed: $e');
     }
 
+    await SessionManager().initializeSession();
+
     try {
       await _initNotifications();
     } catch (e) {
