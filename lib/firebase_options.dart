@@ -24,8 +24,6 @@ class DefaultFirebaseOptions {
         return android;
       case TargetPlatform.iOS:
         return ios;
-      case TargetPlatform.macOS:
-        return macos;
       case TargetPlatform.windows:
         return windows;
       case TargetPlatform.linux:
@@ -60,20 +58,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyDUGpqM4iO-23361BRfyQGSk5Lq9QP5SCA',
-    appId: '1:518982344435:ios:d207e73558a171f2212186',
+    appId: '1:518982344435:ios:be4e286ee6dcbde7212186',
     messagingSenderId: '518982344435',
     projectId: 'kneipentour-3d44c',
     storageBucket: 'kneipentour-3d44c.firebasestorage.app',
-    iosBundleId: 'com.example.kneipentour',
-  );
-
-  static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyDUGpqM4iO-23361BRfyQGSk5Lq9QP5SCA',
-    appId: '1:518982344435:ios:d207e73558a171f2212186',
-    messagingSenderId: '518982344435',
-    projectId: 'kneipentour-3d44c',
-    storageBucket: 'kneipentour-3d44c.firebasestorage.app',
-    iosBundleId: 'com.example.kneipentour',
+    iosBundleId: 'de.seitendorf.kneipentour',
   );
 
   static const FirebaseOptions windows = FirebaseOptions(
