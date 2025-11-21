@@ -186,8 +186,8 @@ class _MobileUnitScreenState extends State<MobileUnitScreen> {
                         markerId: const MarkerId("caller"),
                         position: requestPosition,
                         infoWindow: InfoWindow(
-                          title: currentRequest!.guestId,
-                          snippet: currentRequest!.timestampBegin.toString(),
+                          title: currentRequest != null ? currentRequest!.guestId : "",
+                          snippet: currentRequest != null ? currentRequest!.timestampBegin.toString():"",
                         ),
                       ),
                     },
@@ -208,7 +208,7 @@ class _MobileUnitScreenState extends State<MobileUnitScreen> {
             const SizedBox(height: 20),
 
             Text(
-              mobileUnit.isAvailable
+              mobileUnit.isAvailable || currentRequest==null
                   ? "✅ Einsatzbereit"
                   : "${currentRequest!.guestId} – vor ${_timeAgo(currentRequest!.timestampBegin!)}",
               style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
