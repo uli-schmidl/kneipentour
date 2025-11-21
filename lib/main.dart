@@ -64,6 +64,7 @@ void main() async{
   runApp(const KneipentourApp());
 }
 
+@pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   print("📬 Hintergrund-Nachricht erhalten: ${message.notification?.title}");

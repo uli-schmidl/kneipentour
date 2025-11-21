@@ -89,16 +89,17 @@ class SessionManager {
       return;
     }
 
-    // ✅ Sofort initialen Standort holen
+    Position initialPos;
     try {
-      final initialPos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      print("📍 Initialer Standort: $initialPos");
-      lastKnownLocation.value = initialPos;
+      initialPos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      print('📍 Initialer Standort: $initialPos');
     } catch (e) {
-      print("⚠️ Initialer Standort nicht verfügbar: $e");
+      print('⚠️ Konnte Standort nicht ermitteln: $e');
+      initialPos = (await Geolocator.getLastKnownPosition() ?? LocationConfig.centerPoint) as Position; // Fallback
     }
+// initialPos weiterverwenden (z.B. letzte bekannte Position setzen)
+
+      lastKnownLocation.value = initialPos;
 
     Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
