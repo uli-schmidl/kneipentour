@@ -55,5 +55,22 @@ class LocationConfig {
     }
   }
 
+  static Position posFrom(LatLng source) => Position(
+    latitude: source.latitude,
+    longitude: source.longitude,
+    // Neue Pflichtfelder ab Geolocator 12+
+    timestamp: DateTime.now(),
+    altitude: 0.0,
+    accuracy: 1.0,
+    altitudeAccuracy: 0.0,     // ❗ neu
+    heading: 0.0,
+    headingAccuracy: 0.0,      // ❗ neu
+    speed: 0.0,
+    speedAccuracy: 0.0,
+    floor: null,               // Optional (indoor positioning)
+    isMocked: false,
+  );
+
+
 
 }

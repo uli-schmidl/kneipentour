@@ -96,16 +96,14 @@ class SessionManager {
       return;
     }
 
-    // ✅ Sofort initialen Standort holen
-    try {
-      final initialPos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-      debugPrint("📍 Initialer Standort: $initialPos");
-      lastKnownLocation.value = initialPos;
-    } catch (e) {
-      debugPrint("⚠️ Initialer Standort nicht verfügbar: $e");
-    }
+        Position initialPos;
+        try {
+          initialPos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+          print('📍 Initialer Standort: $initialPos');
+        } catch (e) {
+          print('⚠️ Konnte Standort nicht ermitteln: $e');
+          initialPos = await Geolocator.getLastKnownPosition() ?? LocationConfig.posFrom(LocationConfig.centerPoint); // Fallback
+        }
 
         LocationSettings settings;
 
@@ -373,5 +371,7 @@ class SessionManager {
 
     return true;
   }
+
+
 
 }
