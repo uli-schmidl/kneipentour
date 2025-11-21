@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'package:flutter/cupertino.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class LocationConfig {
@@ -23,5 +25,35 @@ class LocationConfig {
             (1 - cos((lon2 - lon1) * p)) / 2;
     return 12742000 * asin(sqrt(a)); // Meter
   }
+
+  Future<Position?> _safeGetPosition() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        // Optional: User informieren
+        return null;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          return null;
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        return null;
+      }
+
+      return await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+    } catch (e) {
+      debugPrint('Fehler beim Holen der Position: $e');
+      return null;
+    }
+  }
+
 
 }

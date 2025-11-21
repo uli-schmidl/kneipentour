@@ -15,27 +15,66 @@ import 'firebase_options.dart';
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
 FlutterLocalNotificationsPlugin();
 
+Future<void> _initNotifications() async {
+  const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  const darwinSettings = DarwinInitializationSettings(
+    requestAlertPermission: true,
+    requestBadgePermission: true,
+    requestSoundPermission: true,
+  );
+
+  const settings = InitializationSettings(
+    android: androidSettings,
+    iOS: darwinSettings,
+  );
+
+  await flutterLocalNotificationsPlugin.initialize(settings);
+}
+
+Future<void> _initFirebaseMessaging() async {
+  final messaging = FirebaseMessaging.instance;
+
+  // WICHTIG für iOS: explizit um Erlaubnis fragen
+  await messaging.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
+
+  // Token holen & speichern
+  final token = await messaging.getToken();
+  debugPrint('FCM Token: $token');
+  // hier: in Firestore / GuestManager speichern
+}
+
 void main() async{
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  ConnectionService().initialize();
-  SessionManager().startLocationUpdates();
-  const AndroidInitializationSettings androidInit =
-  AndroidInitializationSettings('@mipmap/ic_launcher');
+    WidgetsFlutterBinding.ensureInitialized();
 
-  const InitializationSettings initSettings = InitializationSettings(
-    android: androidInit,
-    iOS: DarwinInitializationSettings(),
-  );
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } catch (e) {
+      debugPrint('Firebase init failed: $e');
+    }
 
-  await flutterLocalNotificationsPlugin.initialize(initSettings);
+    try {
+      await _initNotifications();
+    } catch (e) {
+      debugPrint('Notification init failed: $e');
+    }
+
+    try {
+      await _initFirebaseMessaging();
+    } catch (e) {
+      debugPrint('FirebaseMessaging init failed: $e');
+    }
 
 
 
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-    print("📩 Push im Vordergrund empfangen: ${message.notification?.title}");
+    debugPrint("📩 Push im Vordergrund empfangen: ${message.notification?.title}");
 
     // Lokale Notification anzeigen
     flutterLocalNotificationsPlugin.show(

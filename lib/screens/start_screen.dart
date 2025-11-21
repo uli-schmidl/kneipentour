@@ -103,7 +103,9 @@ class _StartScreenState extends State<StartScreen> {
 
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => HomeScreen(userName: _savedName!)),
+      MaterialPageRoute(builder: (_) => HomeScreen(userName: _savedName!),
+          maintainState: false,),
+
     );
   }
 
@@ -144,7 +146,8 @@ class _StartScreenState extends State<StartScreen> {
 
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => HomeScreen(userName: SessionManager().guestId)),
+      MaterialPageRoute(builder: (_) => HomeScreen(userName: SessionManager().guestId),
+        maintainState: false,),
     );
   }
 
@@ -187,7 +190,8 @@ class _StartScreenState extends State<StartScreen> {
     // 🔹 Weiter zur HomeScreen
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (_) => HomeScreen(userName: name)),
+      MaterialPageRoute(builder: (_) => HomeScreen(userName: name),
+        maintainState: false,),
     );
   }
 
@@ -243,7 +247,8 @@ if(!mounted)return;
               icon: const Icon(Icons.admin_panel_settings, color: Colors.white70, size: 30),
               onPressed: () => Navigator.push(
                 context,
-                MaterialPageRoute(builder: (_) => LoginScreen()),
+                MaterialPageRoute(builder: (_) => LoginScreen(),
+                  maintainState: false,),
               ),
               tooltip: "Login für Wirte & Admins",
             ),

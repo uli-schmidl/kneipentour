@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -551,6 +552,20 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // GoogleMap Widget aktualisieren
   Widget _buildMap() {
+    if (Platform.isIOS) {
+      // Temporärer Fallback für iOS
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Text(
+            'Die Live-Karte ist auf iOS in dieser Version noch deaktiviert.\n'
+                'Du kannst trotzdem alle Funktionen (Check-in, Drinks, Challenges) nutzen.',
+            style: TextStyle(color: Colors.white70),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
     final pos = _currentLocation ?? SessionManager().lastKnownLocation.value;
     if (pos == null) {
       return const Center(

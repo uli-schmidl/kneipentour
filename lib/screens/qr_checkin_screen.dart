@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:kneipentour/data/pub_manager.dart';
 import 'package:kneipentour/models/pending_action.dart';
@@ -99,6 +101,19 @@ class QrCheckinScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (Platform.isIOS) {
+      // Optional: Fallback solange du die Camera-Permissions noch testest
+      return const Scaffold(
+        backgroundColor: Color(0xFF121212),
+        body: Center(
+          child: Text(
+            'QR-Scan ist auf iOS in dieser Version noch eingeschränkt.',
+            style: TextStyle(color: Colors.white70),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
     final controller = MobileScannerController(
       facing: CameraFacing.back,
       detectionSpeed: DetectionSpeed.normal,

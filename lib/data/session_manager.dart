@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:kneipentour/config/location_config.dart';
@@ -27,6 +28,8 @@ class SessionManager {
   String get userId => _userId ?? '';
   String get guestId => _guestId ?? '';
   String get userName => _userName ?? '';
+  StreamSubscription<Position>? _positionSub;
+
 
   bool get hasGuest => _guestId != null;
   bool get isInitialized => _userName != null;
@@ -82,8 +85,12 @@ class SessionManager {
   }
 
     Future<void> startLocationUpdates() async {
-    print("🚀 startLocationUpdates() wurde aufgerufen");
-    final permission = await Geolocator.requestPermission();
+      try {
+        final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          debugPrint('Location Service disabled');
+          return;
+        }    final permission = await Geolocator.requestPermission();
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
       return;
@@ -94,20 +101,35 @@ class SessionManager {
       final initialPos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
-      print("📍 Initialer Standort: $initialPos");
+      debugPrint("📍 Initialer Standort: $initialPos");
       lastKnownLocation.value = initialPos;
     } catch (e) {
-      print("⚠️ Initialer Standort nicht verfügbar: $e");
+      debugPrint("⚠️ Initialer Standort nicht verfügbar: $e");
     }
 
-    Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10, // alle 10m
-      ),
+        LocationSettings settings;
+
+        if (Platform.isAndroid) {
+          settings = AndroidSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5,
+            forceLocationManager: false, // optional
+          );
+        } else {
+          // iOS + Web + Desktop → nutzen alle das gleiche
+          settings = const LocationSettings(
+            accuracy: LocationAccuracy.best,
+            distanceFilter: 10,
+          );
+        }
+
+
+        _positionSub?.cancel();
+    _positionSub = Geolocator.getPositionStream(
+      locationSettings: settings,
     ).listen((pos) async {
       if(_guestId==null || guestId.isEmpty) return;
-      print("$_guestId: Location changed! $pos");
+      debugPrint("$_guestId: Location changed! $pos");
       lastKnownLocation.value = pos;
       final nearestPub = PubManager().getNearestPub(pos.latitude, pos.longitude);
       if (nearestPub != null) {
@@ -132,12 +154,24 @@ class SessionManager {
 
 // 🎯 Challenges prüfen
       ChallengeManager().evaluateProgress(_guestId!);
+    }, onError: (e, st) {
+      debugPrint('Location stream error: $e');
     });
     _idleLocationTimer = Timer.periodic(
       const Duration(seconds: 20),
           (_) => _checkAutoCheckinIdle(),
     );
+      } catch (e, st) {
+        debugPrint('startLocationTracking failed: $e');
+        debugPrint('$st');
+      }
   }
+
+  void stopLocationTracking() {
+    _positionSub?.cancel();
+    _positionSub = null;
+  }
+
   Future<void> _checkAutoCheckinIdle() async {
     try {
       // Standort aktiv abrufen
@@ -146,14 +180,13 @@ class SessionManager {
       );
 
       // Falls sich Standort nicht stark geändert hat → trotzdem weiterprüfen
-      final prev = lastKnownLocation.value;
       lastKnownLocation.value = pos; // löst normale Listener auch aus
 
       // Auto-Checkin-Logik manuell triggern
       await _checkAutoCheckin();
 
     } catch (e) {
-      print("⚠️ Idle check konnte Standort nicht holen: $e");
+      debugPrint("⚠️ Idle check konnte Standort nicht holen: $e");
     }
   }
 
@@ -166,20 +199,20 @@ class SessionManager {
 
       final pub = PubManager().getPubById(pubId);
       if (pub == null) return;
-      print("⏳ Starte Auto-Checkout ");
+      debugPrint("⏳ Starte Auto-Checkout ");
 
       final distance = LocationConfig.calculateDistance(
         pos.latitude, pos.longitude,
         pub.latitude, pub.longitude,
       );
-      print("Aktuelle Entfernung zu ${pub.name}: $distance m");
+      debugPrint("Aktuelle Entfernung zu ${pub.name}: $distance m");
 
       const radius = 50; // Toleranzradius
 
       // ✅ Wieder im Kneipenradius → Timer abbrechen
       if (isNearPub.value) {
         if (_autoCheckoutTimer != null) {
-          print("✅ Gast wieder im Radius → Auto-Checkout abgebrochen");
+          debugPrint("✅ Gast wieder im Radius → Auto-Checkout abgebrochen");
           _autoCheckoutTimer?.cancel();
           _autoCheckoutTimer = null;
         }
@@ -189,7 +222,7 @@ class SessionManager {
       // ✅ Bereits ein Countdown aktiv → nichts tun
       if (_autoCheckoutTimer != null) return;
 
-      print("⏳ Gast zu weit entfernt → Starte Auto-Checkout Countdown…");
+      debugPrint("⏳ Gast zu weit entfernt → Starte Auto-Checkout Countdown…");
 
       _autoCheckoutTimer = Timer(const Duration(seconds: 10), () async {
 
@@ -203,12 +236,12 @@ class SessionManager {
         );
 
         if (recheckDistance <= radius) {
-          print("✅ Gast ist zurück → kein Auto-Checkout");
+          debugPrint("✅ Gast ist zurück → kein Auto-Checkout");
           _autoCheckoutTimer = null;
           return;
         }
 
-        print("🚶‍♂️ Auto-Checkout wird ausgeführt (${recheckDistance.round()}m entfernt)");
+        debugPrint("🚶‍♂️ Auto-Checkout wird ausgeführt (${recheckDistance.round()}m entfernt)");
 
         final checkInActivity = await ActivityManager().getCheckInActivity(guestId, pubId: pub.id);
         if (checkInActivity != null) {
@@ -286,7 +319,7 @@ class SessionManager {
         message: "Du bist anscheinend in ${closePub.name}. Möchtest du einchecken?",
       );
 
-      print("📨 Auto-Checkin Reminder für $guestId und Kneipe ${closePub.name} gesendet!");
+      debugPrint("📨 Auto-Checkin Reminder für $guestId und Kneipe ${closePub.name} gesendet!");
     }
   }
 

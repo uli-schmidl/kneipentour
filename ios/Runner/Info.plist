@@ -43,13 +43,29 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
-    <key>NSCameraUsageDescription</key>
-    <string>Die Kamera wird benötigt, um QR-Codes und Bilder zu erfassen.</string>
+
+    <!-- --- LOCATION PERMISSIONS --- -->
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>Der Standort wird benötigt, um Pubs in deiner Nähe anzuzeigen und Check-ins korrekt zuzuordnen.</string>
+    <string>Wir verwenden deinen Standort, um Check-ins, Auto-Checkout und die Kneipenkarte anzuzeigen.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-    <string>Der Standort wird benötigt, damit Check-ins auch im Hintergrund korrekt funktionieren.</string>
+    <string>Wir verwenden deinen Standort auch im Hintergrund, um Auto-Checkout und Standort-Updates zu ermöglichen.</string>
+
+    <!-- --- CAMERA PERMISSION (QR-SCANNER) --- -->
+    <key>NSCameraUsageDescription</key>
+    <string>Die Kamera wird benötigt, um QR-Codes für Check-ins zu scannen.</string>
+
+    <!-- --- PUSH NOTIFICATIONS / FCM --- -->
+    <key>NSUserTrackingUsageDescription</key>
+    <string>Tracking wird genutzt, um Push-Benachrichtigungen zu ermöglichen.</string>
+    <key>FirebaseAppDelegateForwarderEnabled</key>
+    <true/>
+
+    <!-- --- REQUIRED FOR GOOGLE MAPS (Flutter platform views) --- -->
+    <key>io.flutter.embedded_views_preview</key>
+    <true/>
+
+    <!-- --- OPTIONAL, ABER EMPFOHLEN --- -->
+    <key>UIApplicationSupportsIndirectInputEvents</key>
+    <true/>
 </dict>
 </plist>
