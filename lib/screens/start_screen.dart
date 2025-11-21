@@ -64,6 +64,11 @@ class _StartScreenState extends State<StartScreen> {
       return;
     }
 
+    final ok = await SessionManager().ensureLocationPermission();
+    if (!ok) {
+      // Button bleibt disabled oder Hinweis anzeigen
+      return;
+    }
 
     // ✅ Auf ersten gültigen Standort warten (max 8 Sekunden)
     Position? pos;

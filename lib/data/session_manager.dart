@@ -117,7 +117,7 @@ class SessionManager {
           );
         } else {
           // iOS + Web + Desktop → nutzen alle das gleiche
-          settings = const LocationSettings(
+          settings = LocationSettings(
             accuracy: LocationAccuracy.best,
             distanceFilter: 10,
           );
@@ -323,5 +323,55 @@ class SessionManager {
     }
   }
 
+  /// Öffnet unter iOS die App-/Standort-Einstellungen,
+  /// damit der User die Berechtigung nachträglich setzen kann.
+  /// Unter Android geht es in die Standort-Einstellungen.
+  Future<void> AppleLocationSettings() async {
+    try {
+      final status = await Geolocator.checkPermission();
+
+      // Wenn dauerhaft verweigert -> direkt in die App-Einstellungen
+      if (status == LocationPermission.deniedForever) {
+        await Geolocator.openAppSettings();
+        return;
+      }
+
+      // Versuche zuerst die Standort-Einstellungen zu öffnen
+      final opened = await Geolocator.openLocationSettings();
+
+      // Falls das auf iOS/Device nicht klappt -> Fallback App-Einstellungen
+      if (!opened) {
+        await Geolocator.openAppSettings();
+      }
+    } catch (e) {
+      debugPrint('AppleLocationSettings failed: $e');
+    }
+  }
+
+  Future<bool> ensureLocationPermission() async {
+    // 1. Ist Location an?
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      return false; // StartScreen zeigt dann: "Nicht im Gebiet / Standort aus"
+    }
+
+    // 2. Berechtigungen prüfen
+    LocationPermission permission = await Geolocator.checkPermission();
+
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        return false;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      // Dem User sagen: Bitte in Einstellungen aktivieren
+      await Geolocator.openAppSettings();
+      return false;
+    }
+
+    return true;
+  }
 
 }

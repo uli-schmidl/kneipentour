@@ -53,6 +53,8 @@
     <!-- --- CAMERA PERMISSION (QR-SCANNER) --- -->
     <key>NSCameraUsageDescription</key>
     <string>Die Kamera wird benötigt, um QR-Codes für Check-ins zu scannen.</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>Wir verwenden deinen Standort auch im Hintergrund für Check-ins.</string>
 
     <!-- --- PUSH NOTIFICATIONS / FCM --- -->
     <key>NSUserTrackingUsageDescription</key>
