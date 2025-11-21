@@ -104,7 +104,10 @@ void main() async{
 }
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   print("📬 Hintergrund-Nachricht erhalten: ${message.notification?.title}");
 }
 
