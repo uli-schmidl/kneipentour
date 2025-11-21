@@ -240,36 +240,37 @@ class _PubInfoScreenState extends State<PubInfoScreen> {
     );
   }
   void _showPaymentChoiceDialog(BuildContext context, String pubId, String pubName) {
+    bool paypal=false;
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           backgroundColor: const Color(0xFF1E1E1E),
           title: const Text(
-            "Wie möchtest du bezahlen?",
+            "Schon bezahlt?",
             style: TextStyle(color: Colors.white),
-          ),
-          content: const Text(
-            "Bitte wähle eine Zahlungsart für dein Getränk:",
-            style: TextStyle(color: Colors.white70),
           ),
           actions: [
             TextButton.icon(
               icon: const Icon(Icons.euro, color: Colors.orangeAccent),
-              label: const Text("Barzahlung", style: TextStyle(color: Colors.orangeAccent)),
+              label: const Text("Frale!", style: TextStyle(color: Colors.orangeAccent)),
               onPressed: () async {
                 Navigator.pop(context);
                 await _logDrink(pubId, pubName, payment: "cash");
               },
             ),
-            TextButton.icon(
-              icon: const Icon(Icons.payment, color: Colors.blueAccent),
-              label: const Text("PayPal", style: TextStyle(color: Colors.blueAccent)),
-              onPressed: () {
-                Navigator.pop(context);
-                _payWithPayPal(context, 3.50, pubId, pubName); // Betrag dynamisch möglich
-              },
-            ),
+            /*if(paypal){
+              TextButton.icon(
+                icon: const Icon(Icons.payment, color: Colors.blueAccent),
+                label: const Text(
+                    "PayPal", style: TextStyle(color: Colors.blueAccent)),
+                onPressed: () {
+                  Navigator.pop(context);
+                  _payWithPayPal(context, 3.50, pubId,
+                      pubName); // Betrag dynamisch möglich
+                },
+              ),
+            }*/
           ],
         );
       },
